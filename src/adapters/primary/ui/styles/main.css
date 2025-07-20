@@ -1,0 +1,555 @@
+﻿/* src/adapters/primary/ui/styles/main.css */
+
+/* Reset et base */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: #1a1a1a;
+  color: #ffffff;
+  overflow: hidden;
+  height: 100vh;
+}
+
+#app {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.app-header {
+  background-color: #0d0d0d;
+  padding: 1rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 2px solid #00d4ff;
+}
+
+.app-header h1 {
+  font-size: 2rem;
+  background: linear-gradient(45deg, #00d4ff, #0099cc);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.status-bar {
+  font-size: 0.9rem;
+  color: #888;
+}
+
+/* Navigation par onglets */
+.tab-navigation {
+  background-color: #0d0d0d;
+  display: flex;
+  padding: 0 2rem;
+  gap: 1rem;
+}
+
+.tab-button {
+  background: none;
+  border: none;
+  color: #888;
+  padding: 1rem 2rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border-bottom: 3px solid transparent;
+  font-size: 1rem;
+}
+
+.tab-button:hover {
+  color: #00d4ff;
+}
+
+.tab-button.active {
+  color: #00d4ff;
+  border-bottom-color: #00d4ff;
+}
+
+/* Conteneur des onglets */
+.tab-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2rem;
+}
+
+.tab-content {
+  display: none;
+  animation: fadeIn 0.3s ease;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Layout principal */
+.main-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  height: 100%;
+}
+
+/* Section capteurs */
+.sensor-section {
+  background-color: #262626;
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.sensor-section h2 {
+  margin-bottom: 1rem;
+  color: #00d4ff;
+}
+
+.scan-button {
+  width: 100%;
+  padding: 1rem;
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s;
+  margin-bottom: 1rem;
+}
+
+.scan-button:hover:not(:disabled) {
+  background-color: #45a049;
+}
+
+.scan-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.device-info {
+  background-color: #333;
+  border-radius: 8px;
+  padding: 1rem;
+  position: relative;
+}
+
+.status-indicator {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  transition: background-color 0.3s;
+}
+
+.status-connected {
+  background-color: #4CAF50;
+  box-shadow: 0 0 10px #4CAF50;
+}
+
+.status-disconnected {
+  background-color: #f44336;
+}
+
+.info-basic, .info-sensor {
+  margin-bottom: 1rem;
+}
+
+.info-basic h3, .info-sensor h3 {
+  margin-bottom: 0.5rem;
+  font-size: 1.1rem;
+}
+
+.info-basic p, .info-sensor p {
+  margin: 0.25rem 0;
+  font-size: 0.9rem;
+}
+
+/* Section narrative */
+.narrative-section {
+  background-color: #262626;
+  border-radius: 8px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.narrative-section h2 {
+  margin-bottom: 1rem;
+  color: #0099cc;
+}
+
+.narrative-space {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  cursor: pointer;
+}
+
+/* Dialogue */
+.dialogue-container {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80%;
+  max-width: 800px;
+  z-index: 1000;
+}
+
+.dialogue-box {
+  background-color: rgba(26, 26, 26, 0.95);
+  border: 2px solid #00d4ff;
+  border-radius: 8px;
+  padding: 1.5rem;
+  display: flex;
+  gap: 1.5rem;
+  box-shadow: 0 4px 20px rgba(0, 212, 255, 0.3);
+}
+
+.character-portrait {
+  width: 80px;
+  height: 80px;
+  background-color: #333;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.character-portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.dialogue-content-wrapper {
+  flex: 1;
+}
+
+#speaker-name {
+  color: #00d4ff;
+  margin-bottom: 0.5rem;
+}
+
+#dialogue-content {
+  font-size: 1.1rem;
+  line-height: 1.6;
+}
+
+.continue-indicator {
+  display: inline-block;
+  animation: pulse 1s infinite;
+  color: #00d4ff;
+  margin-left: 0.5rem;
+}
+
+/* Sound Control */
+.sound-control-layout {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 2rem;
+}
+
+.audio-controls,
+.audio-settings,
+.sensor-sensitivity {
+  background-color: #262626;
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.control-group {
+  margin-bottom: 1rem;
+}
+
+.control-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #888;
+}
+
+.control-group input[type="file"] {
+  width: 100%;
+  padding: 0.5rem;
+  background-color: #333;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: white;
+}
+
+.control-buttons {
+  display: flex;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.control-button {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 2px solid #00d4ff;
+  background-color: transparent;
+  color: #00d4ff;
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: all 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.control-button:hover {
+  background-color: rgba(0, 212, 255, 0.1);
+  transform: scale(1.05);
+}
+
+.record-button .record-icon {
+  color: #f44336;
+  font-size: 2rem;
+}
+
+.record-button.recording .record-icon {
+  animation: pulse 1s infinite;
+}
+
+/* Timeline */
+.timeline-wrapper {
+  margin: 2rem 0;
+}
+
+.timeline-container {
+  height: 8px;
+  background-color: #333;
+  border-radius: 4px;
+  position: relative;
+  cursor: pointer;
+  margin-bottom: 0.5rem;
+}
+
+.timeline-progress {
+  height: 100%;
+  background-color: #00d4ff;
+  border-radius: 4px;
+  width: 0%;
+  transition: width 0.1s;
+}
+
+.timeline-handle {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 16px;
+  height: 16px;
+  background-color: #00d4ff;
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+  left: 0%;
+}
+
+.position-display {
+  text-align: center;
+  color: #888;
+  font-size: 0.9rem;
+}
+
+/* Audio info */
+.audio-info p {
+  margin: 0.5rem 0;
+  color: #888;
+}
+
+/* Settings */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+
+.settings-section {
+  background-color: #262626;
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.setting-item {
+  margin-bottom: 1rem;
+}
+
+.setting-item label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #888;
+}
+
+.setting-item input[type="text"],
+.setting-item input[type="number"],
+.setting-item select {
+  width: 100%;
+  padding: 0.5rem;
+  background-color: #333;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: white;
+}
+
+.setting-item input[type="checkbox"] {
+  margin-right: 0.5rem;
+}
+
+.apply-button {
+  width: 100%;
+  padding: 0.75rem;
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  margin-top: 1rem;
+  transition: background-color 0.3s;
+}
+
+.apply-button:hover {
+  background-color: #45a049;
+}
+
+/* Sensibilité */
+.sensitivity-control {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.sensitivity-control input[type="range"] {
+  flex: 1;
+}
+
+#sensitivityValue {
+  min-width: 3rem;
+  text-align: center;
+  font-weight: bold;
+  color: #00d4ff;
+}
+
+/* Animations */
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
+}
+
+/* Scrollbar personnalisée */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* System info */
+.system-info {
+  color: #888;
+}
+
+.system-info p {
+  margin: 0.5rem 0;
+}
+/* Ajouter à la fin du fichier src/adapters/primary/ui/styles/main.css */
+
+/* Messages d'erreur */
+.error-message {
+  background-color: #f44336;
+  color: white;
+  padding: 0.75rem;
+  border-radius: 4px;
+  margin-top: 1rem;
+  text-align: center;
+  animation: fadeIn 0.3s ease;
+}
+
+/* Aide Bluetooth */
+.bluetooth-help {
+  background-color: #333;
+  border: 1px solid #00d4ff;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-top: 1rem;
+  animation: fadeIn 0.3s ease;
+}
+
+.bluetooth-help h4 {
+  color: #00d4ff;
+  margin-bottom: 1rem;
+}
+
+.bluetooth-help ul {
+  list-style-position: inside;
+  margin-bottom: 1rem;
+}
+
+.bluetooth-help li {
+  margin: 0.5rem 0;
+  color: #ccc;
+}
+
+.bluetooth-help p {
+  color: #888;
+  font-style: italic;
+}
+
+/* Animation de chargement pour le scan */
+@keyframes scanning {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.scan-button:disabled {
+  position: relative;
+}
+
+.scan-button:disabled::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  top: 50%;
+  right: 1rem;
+  transform: translateY(-50%);
+  border: 2px solid white;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: scanning 1s linear infinite;
+}
