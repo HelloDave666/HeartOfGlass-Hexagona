@@ -2,19 +2,20 @@
 
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
-const { getInstance: getContainer } = require('../../../../infrastructure/di/Container');
 
 let mainWindow;
-let container;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1920,
     height: 1080,
     webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, '../preload/index.js')
+      // Configuration temporaire pour faire fonctionner Noble
+      // (similaire à l'ancien projet qui fonctionnait)
+      nodeIntegration: true,
+      contextIsolation: false,
+      backgroundThrottling: false,
+      webSecurity: false
     },
     backgroundColor: '#1a1a1a',
     show: false // Afficher quand prêt
@@ -27,10 +28,10 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     
-    // Mode développement
-    if (process.env.NODE_ENV === 'development') {
-      mainWindow.webContents.openDevTools();
-    }
+    // Toujours ouvrir les DevTools pour le débogage
+    mainWindow.webContents.openDevTools();
+    
+    console.log('[Main] Fenêtre affichée, DevTools ouvertes');
   });
 
   // Nettoyer à la fermeture
@@ -42,27 +43,12 @@ function createWindow() {
 // Initialisation de l'application
 app.whenReady().then(() => {
   console.log('[App] Application prête');
-  
-  // Initialiser le container de dépendances
-  container = getContainer();
-  container.initializeAll();
-  
-  // Créer la fenêtre
   createWindow();
-  
-  // Notifier que le système est prêt
-  const eventBus = container.resolve('eventBus');
-  eventBus.emit('system:ready');
 });
 
 // Gestion de la fermeture
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    // Nettoyer les ressources
-    if (container) {
-      const sensorService = container.resolve('sensorService');
-      sensorService.stopScanning();
-    }
     app.quit();
   }
 });
@@ -77,10 +63,6 @@ app.on('activate', () => {
 // Gestion des erreurs non capturées
 process.on('uncaughtException', (error) => {
   console.error('[App] Erreur non capturée:', error);
-  if (container) {
-    const eventBus = container.resolve('eventBus');
-    eventBus.emit('system:error', { error: error.message });
-  }
 });
 
 // Log des messages du renderer

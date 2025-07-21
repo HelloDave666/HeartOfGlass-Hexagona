@@ -1,6 +1,4 @@
-﻿/* src/adapters/primary/ui/styles/main.css */
-
-/* Reset et base */
+﻿/* Reset et base */
 * {
   margin: 0;
   padding: 0;
@@ -114,6 +112,11 @@ body {
   color: #00d4ff;
 }
 
+/* Contrôles des capteurs */
+.sensor-controls {
+  margin-bottom: 1.5rem;
+}
+
 .scan-button {
   width: 100%;
   padding: 1rem;
@@ -136,6 +139,17 @@ body {
   opacity: 0.7;
 }
 
+/* Messages d'erreur */
+.error-message {
+  background-color: #f44336;
+  color: white;
+  padding: 0.75rem;
+  border-radius: 4px;
+  text-align: center;
+  animation: fadeIn 0.3s ease;
+}
+
+/* Liste des dispositifs */
 .device-list {
   display: flex;
   flex-direction: column;
@@ -203,66 +217,15 @@ body {
   justify-content: center;
   min-height: 300px;
   cursor: pointer;
+  color: #888;
+  font-style: italic;
 }
 
-/* Dialogue */
-.dialogue-container {
-  position: fixed;
-  bottom: 2rem;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 80%;
-  max-width: 800px;
-  z-index: 1000;
+.narrative-space::before {
+  content: "Espace narratif - Rita/Echo apparaîtront ici";
 }
 
-.dialogue-box {
-  background-color: rgba(26, 26, 26, 0.95);
-  border: 2px solid #00d4ff;
-  border-radius: 8px;
-  padding: 1.5rem;
-  display: flex;
-  gap: 1.5rem;
-  box-shadow: 0 4px 20px rgba(0, 212, 255, 0.3);
-}
-
-.character-portrait {
-  width: 80px;
-  height: 80px;
-  background-color: #333;
-  border-radius: 50%;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.character-portrait img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.dialogue-content-wrapper {
-  flex: 1;
-}
-
-#speaker-name {
-  color: #00d4ff;
-  margin-bottom: 0.5rem;
-}
-
-#dialogue-content {
-  font-size: 1.1rem;
-  line-height: 1.6;
-}
-
-.continue-indicator {
-  display: inline-block;
-  animation: pulse 1s infinite;
-  color: #00d4ff;
-  margin-left: 0.5rem;
-}
-
-/* Sound Control */
+/* Sound Control - Layout de base */
 .sound-control-layout {
   display: grid;
   grid-template-columns: 2fr 1fr 1fr;
@@ -322,62 +285,7 @@ body {
   transform: scale(1.05);
 }
 
-.record-button .record-icon {
-  color: #f44336;
-  font-size: 2rem;
-}
-
-.record-button.recording .record-icon {
-  animation: pulse 1s infinite;
-}
-
-/* Timeline */
-.timeline-wrapper {
-  margin: 2rem 0;
-}
-
-.timeline-container {
-  height: 8px;
-  background-color: #333;
-  border-radius: 4px;
-  position: relative;
-  cursor: pointer;
-  margin-bottom: 0.5rem;
-}
-
-.timeline-progress {
-  height: 100%;
-  background-color: #00d4ff;
-  border-radius: 4px;
-  width: 0%;
-  transition: width 0.1s;
-}
-
-.timeline-handle {
-  position: absolute;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 16px;
-  height: 16px;
-  background-color: #00d4ff;
-  border-radius: 50%;
-  box-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
-  left: 0%;
-}
-
-.position-display {
-  text-align: center;
-  color: #888;
-  font-size: 0.9rem;
-}
-
-/* Audio info */
-.audio-info p {
-  margin: 0.5rem 0;
-  color: #888;
-}
-
-/* Settings */
+/* Paramètres - Layout */
 .settings-layout {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -450,13 +358,6 @@ body {
   color: #00d4ff;
 }
 
-/* Animations */
-@keyframes pulse {
-  0% { opacity: 1; }
-  50% { opacity: 0.5; }
-  100% { opacity: 1; }
-}
-
 /* Scrollbar personnalisée */
 ::-webkit-scrollbar {
   width: 8px;
@@ -482,74 +383,4 @@ body {
 
 .system-info p {
   margin: 0.5rem 0;
-}
-/* Ajouter à la fin du fichier src/adapters/primary/ui/styles/main.css */
-
-/* Messages d'erreur */
-.error-message {
-  background-color: #f44336;
-  color: white;
-  padding: 0.75rem;
-  border-radius: 4px;
-  margin-top: 1rem;
-  text-align: center;
-  animation: fadeIn 0.3s ease;
-}
-
-/* Aide Bluetooth */
-.bluetooth-help {
-  background-color: #333;
-  border: 1px solid #00d4ff;
-  border-radius: 8px;
-  padding: 1.5rem;
-  margin-top: 1rem;
-  animation: fadeIn 0.3s ease;
-}
-
-.bluetooth-help h4 {
-  color: #00d4ff;
-  margin-bottom: 1rem;
-}
-
-.bluetooth-help ul {
-  list-style-position: inside;
-  margin-bottom: 1rem;
-}
-
-.bluetooth-help li {
-  margin: 0.5rem 0;
-  color: #ccc;
-}
-
-.bluetooth-help p {
-  color: #888;
-  font-style: italic;
-}
-
-/* Animation de chargement pour le scan */
-@keyframes scanning {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-.scan-button:disabled {
-  position: relative;
-}
-
-.scan-button:disabled::after {
-  content: '';
-  position: absolute;
-  width: 20px;
-  height: 20px;
-  top: 50%;
-  right: 1rem;
-  transform: translateY(-50%);
-  border: 2px solid white;
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: scanning 1s linear infinite;
 }

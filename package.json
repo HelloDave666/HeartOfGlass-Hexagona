@@ -1,13 +1,11 @@
 {
-  "name": "heart-of-glass",
-  "version": "2.0.0",
-  "description": "Application ludopedagogique avec capteurs IMU et synthese audio",
+  "name": "heart-of-glass-hexagonal",
+  "version": "1.0.0",
+  "description": "Heart of Glass project with hexagonal architecture",
   "main": "src/adapters/primary/electron/main/index.js",
-  "author": "David Arnaud <davidarnaud001@gmail.com>",
-  "license": "MIT",
   "scripts": {
-    "start": "electron .",
-    "dev": "cross-env NODE_ENV=development electron .",
+    "start": "set NOBLE_REPORT_ALL_HCI_EVENTS=1&& set NOBLE_HCI_DEVICE_ID=0&& set NOBLE_MULTI_ROLE=1&& electron .",
+    "dev": "set NOBLE_REPORT_ALL_HCI_EVENTS=1&& set NOBLE_HCI_DEVICE_ID=0&& set NOBLE_MULTI_ROLE=1&& cross-env NODE_ENV=development electron .",
     "build": "electron-builder",
     "build:win": "electron-builder --win",
     "build:portable": "electron-builder --win portable",
@@ -18,29 +16,43 @@
     "format": "prettier --write src/**/*.js"
   },
   "keywords": [
-    "IMU",
-    "audio",
-    "education",
     "electron",
-    "bluetooth"
+    "bluetooth",
+    "imu",
+    "sensors",
+    "hexagonal-architecture"
   ],
-  "dependencies": {
-    "@abandonware/noble": "^1.9.2-15",
-    "electron": "^28.1.0",
-    "electron-store": "^8.1.0",
-    "events": "^3.3.0",
-    "lamejs": "^1.2.1",
-    "uuid": "^9.0.1",
-    "web-audio-api": "^0.2.2",
-    "winston": "^3.11.0"
-  },
+  "author": "HelloDave666",
+  "license": "MIT",
   "devDependencies": {
-    "@types/node": "^20.11.5",
+    "@electron/rebuild": "^3.2.10",
     "cross-env": "^7.0.3",
-    "electron-builder": "^24.13.3",
-    "electron-devtools-installer": "^3.2.0",
-    "eslint": "^8.56.0",
-    "jest": "^29.7.0",
-    "prettier": "^3.2.4"
+    "electron": "^22.0.0",
+    "electron-builder": "^24.0.0",
+    "eslint": "^8.0.0",
+    "jest": "^29.0.0",
+    "prettier": "^2.8.0"
+  },
+  "build": {
+    "appId": "com.heartofglass.app",
+    "productName": "Heart of Glass",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "dependencies": {
+    "noble-winrt": "^0.1.1"
   }
 }
