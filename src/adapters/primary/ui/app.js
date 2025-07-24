@@ -4,7 +4,7 @@
 const noble = require('noble-winrt');
 
 // Point d'entrée de l'interface utilisateur
-console.log('Heart of Glass - UI loaded (noble-winrt with smart reconnection)');
+console.log('Heart of Glass - UI loaded (noble-winrt with robust reconnection)');
 
 // Variables globales
 let connectedDevices = new Map();
@@ -13,6 +13,11 @@ let isScanning = false;
 let calibrationOffsets = new Map();
 let connectionMonitor = null;
 let isMonitoringActive = false;
+let reconnectionAttempts = new Map();
+let connectionTimeouts = new Map();
+let sensorUpdateCounter = new Map();
+let scanTimeoutHandle = null;
+let autoRetryTimeoutHandle = null;
 
 // Cache des capteurs découverts
 let knownSensors = new Map();
@@ -25,6 +30,19 @@ const SENSOR_CONFIG = {
   rightAddress: 'f0:70:c4:de:d1:22',
   leftColor: 'blue',
   rightColor: 'green'
+};
+
+// Configuration de connexion améliorée
+const CONNECTION_CONFIG = {
+  scanTimeout: 60000, // 60 secondes
+  scanDelay: 500, // 500ms
+  monitorInterval: 2000, // 2 secondes
+  reconnectDelay: 1000, // Délai avant reconnexion
+  maxReconnectAttempts: 5,
+  backoffMultiplier: 1.5,
+  connectionTimeout: 10000, // Timeout pour une tentative de connexion
+  discoveryDebounce: 3000, // Éviter les découvertes en rafale
+  autoRetryDisabled: true // DÉSACTIVER le retry automatique après timeout
 };
 
 // Fonctions globales pour l'interface
@@ -50,7 +68,9 @@ function initSensorCache() {
     name: 'WT901BLE67',
     lastSeen: 0,
     connectionCount: 0,
-    isConfigured: true
+    isConfigured: true,
+    lastConnectionAttempt: 0,
+    connectionHistory: []
   });
   
   knownSensors.set(SENSOR_CONFIG.rightAddress.toLowerCase(), {
@@ -60,7 +80,9 @@ function initSensorCache() {
     name: 'WT901BLE67',
     lastSeen: 0,
     connectionCount: 0,
-    isConfigured: true
+    isConfigured: true,
+    lastConnectionAttempt: 0,
+    connectionHistory: []
   });
   
   console.log('[Cache] Capteurs configurés:', Array.from(knownSensors.keys()));
@@ -70,19 +92,43 @@ function updateSensorCache(peripheral, position) {
   const address = peripheral.address.toLowerCase();
   const now = Date.now();
   
+  const existingInfo = knownSensors.get(address) || {};
+  const connectionHistory = existingInfo.connectionHistory || [];
+  
+  // Ajouter à l'historique de connexion
+  connectionHistory.push({
+    timestamp: now,
+    rssi: peripheral.rssi,
+    success: true
+  });
+  
+  // Garder seulement les 10 dernières connexions
+  if (connectionHistory.length > 10) {
+    connectionHistory.shift();
+  }
+  
   const sensorInfo = {
+    ...existingInfo,
     address: address,
     position: position,
     color: position === 'GAUCHE' ? SENSOR_CONFIG.leftColor : SENSOR_CONFIG.rightColor,
     name: peripheral.advertisement.localName || 'WT901BLE67',
     lastSeen: now,
     lastRssi: peripheral.rssi,
-    connectionCount: (knownSensors.get(address)?.connectionCount || 0) + 1,
-    isConfigured: true
+    connectionCount: (existingInfo.connectionCount || 0) + 1,
+    isConfigured: true,
+    connectionHistory: connectionHistory,
+    averageRssi: calculateAverageRssi(connectionHistory)
   };
   
   knownSensors.set(address, sensorInfo);
   console.log('[Cache] Capteur mis à jour:', sensorInfo);
+}
+
+function calculateAverageRssi(history) {
+  if (!history || history.length === 0) return -100;
+  const sum = history.reduce((acc, item) => acc + item.rssi, 0);
+  return Math.round(sum / history.length);
 }
 
 function isKnownSensor(address) {
@@ -158,109 +204,160 @@ function setupSensorInterface() {
     console.log('[Bluetooth] Démarrage du scan ciblé (noble-winrt)');
     console.log('[Bluetooth] État actuel - isScanning:', isScanning, 'noble.state:', noble.state);
     
+    // Annuler tout auto-retry en cours
+    if (autoRetryTimeoutHandle) {
+      clearTimeout(autoRetryTimeoutHandle);
+      autoRetryTimeoutHandle = null;
+    }
+    
     isScanning = true;
     lastScanTime = Date.now();
     updateScanButton('Recherche en cours...', '#e74c3c', false);
     hideError();
     
-    // S'assurer que le scan précédent est arrêté
-    try {
-      if (noble.state === 'poweredOn') {
-        noble.stopScanning();
-        console.log('[Bluetooth] Scan précédent arrêté');
+    // Réinitialiser les tentatives de reconnexion
+    reconnectionAttempts.clear();
+    
+    // S'assurer que Noble est dans un état stable
+    ensureNobleReady(() => {
+      // S'assurer que le scan précédent est arrêté
+      try {
+        if (noble._bindings && noble._bindings._radio) {
+          noble.stopScanning();
+          console.log('[Bluetooth] Scan précédent arrêté');
+        }
+      } catch (error) {
+        console.log('[Bluetooth] Pas de scan précédent à arrêter');
       }
-    } catch (error) {
-      console.log('[Bluetooth] Pas de scan précédent à arrêter');
-    }
-    
-    // Réinitialiser l'affichage
-    deviceList.innerHTML = '';
-    connectedDevices.clear();
-    sensorsWithData.clear();
-    calibrationOffsets.clear();
-    sensorDiscoveryCache.clear();
-    updateConnectionStatus('Recherche des capteurs configurés...');
-    updateDiscoveryInfo('Recherche en cours...');
-    
-    // Arrêter le monitoring si actif
-    if (connectionMonitor) {
-      clearInterval(connectionMonitor);
-      connectionMonitor = null;
-      isMonitoringActive = false;
-    }
-    
-    // Créer les affichages des capteurs
-    const leftDisplay = createDeviceDisplay('GAUCHE', SENSOR_CONFIG.leftColor);
-    const rightDisplay = createDeviceDisplay('DROIT', SENSOR_CONFIG.rightColor);
-    deviceList.appendChild(leftDisplay.element);
-    deviceList.appendChild(rightDisplay.element);
-
-    // Démarrer le scan Noble-WinRT avec délai pour s'assurer que l'arrêt est effectué
-    setTimeout(() => {
-      console.log('[Bluetooth] État Noble-WinRT après délai:', noble.state);
       
-      const initNoble = () => {
-        if (noble.state === 'poweredOn') {
-          console.log('[Bluetooth] Noble-WinRT prêt, démarrage du scan ciblé');
-          try {
-            noble.startScanning([], false); // Scan tous les devices mais on filtrera
-            console.log('[Bluetooth] Scan démarré avec succès (noble-winrt)');
-            updateConnectionStatus('Scan actif - Recherche ciblée...');
-            updateDiscoveryInfo('Scan des dispositifs Bluetooth...');
-            
-            // Timeout pour le scan - arrêt automatique après 45 secondes
-            setTimeout(() => {
-              if (isScanning) {
-                const leftConnected = connectedDevices.has(SENSOR_CONFIG.leftAddress.toLowerCase());
-                const rightConnected = connectedDevices.has(SENSOR_CONFIG.rightAddress.toLowerCase());
-                
-                if (!leftConnected || !rightConnected) {
-                  console.log('[Bluetooth] Timeout scan - Arrêt après 45 secondes');
-                  const missing = !leftConnected && !rightConnected ? 'les deux capteurs' : 
-                                 !leftConnected ? 'le capteur GAUCHE' : 'le capteur DROIT';
-                  updateConnectionStatus(`Timeout: ${missing} non trouvé(s)`);
-                  updateDiscoveryInfo('Scan terminé - Capteurs manquants');
-                  stopScan();
-                }
+      // Réinitialiser l'affichage
+      deviceList.innerHTML = '';
+      connectedDevices.clear();
+      sensorsWithData.clear();
+      calibrationOffsets.clear();
+      sensorDiscoveryCache.clear();
+      sensorUpdateCounter.clear();
+      updateConnectionStatus('Recherche des capteurs configurés...');
+      updateDiscoveryInfo('Recherche en cours...');
+      
+      // Arrêter le monitoring si actif
+      if (connectionMonitor) {
+        clearInterval(connectionMonitor);
+        connectionMonitor = null;
+        isMonitoringActive = false;
+      }
+      
+      // Créer les affichages des capteurs
+      const leftDisplay = createDeviceDisplay('GAUCHE', SENSOR_CONFIG.leftColor);
+      const rightDisplay = createDeviceDisplay('DROIT', SENSOR_CONFIG.rightColor);
+      deviceList.appendChild(leftDisplay.element);
+      deviceList.appendChild(rightDisplay.element);
+
+      // Démarrer le scan Noble-WinRT avec délai approprié
+      setTimeout(() => {
+        console.log('[Bluetooth] État Noble-WinRT après délai:', noble.state);
+        
+        const initNoble = () => {
+          if (noble.state === 'poweredOn') {
+            console.log('[Bluetooth] Noble-WinRT prêt, démarrage du scan ciblé');
+            try {
+              noble.startScanning([], false); // Scan tous les devices mais on filtrera
+              console.log('[Bluetooth] Scan démarré avec succès (noble-winrt)');
+              updateConnectionStatus('Scan actif - Recherche ciblée...');
+              updateDiscoveryInfo('Scan des dispositifs Bluetooth...');
+              
+              // Timeout pour le scan - arrêt automatique après la durée configurée
+              if (scanTimeoutHandle) {
+                clearTimeout(scanTimeoutHandle);
               }
-            }, 45000);
-            
-          } catch (error) {
-            console.error('[Bluetooth] Erreur au démarrage du scan:', error);
-            showError('Erreur de démarrage du scan Bluetooth');
+              
+              scanTimeoutHandle = setTimeout(() => {
+                if (isScanning) {
+                  const leftConnected = connectedDevices.has(SENSOR_CONFIG.leftAddress.toLowerCase());
+                  const rightConnected = connectedDevices.has(SENSOR_CONFIG.rightAddress.toLowerCase());
+                  
+                  if (!leftConnected || !rightConnected) {
+                    console.log('[Bluetooth] Timeout scan - Arrêt après', CONNECTION_CONFIG.scanTimeout / 1000, 'secondes');
+                    const missing = !leftConnected && !rightConnected ? 'les deux capteurs' : 
+                                   !leftConnected ? 'le capteur GAUCHE' : 'le capteur DROIT';
+                    updateConnectionStatus(`Timeout: ${missing} non trouvé(s)`);
+                    updateDiscoveryInfo('Scan terminé - Capteurs manquants');
+                    
+                    // PAS de retry automatique - laisser l'utilisateur décider
+                    if (!CONNECTION_CONFIG.autoRetryDisabled) {
+                      autoRetryTimeoutHandle = setTimeout(() => {
+                        if (!isScanning && (!leftConnected || !rightConnected)) {
+                          updateConnectionStatus('Nouvelle tentative de scan automatique...');
+                          startScan();
+                        }
+                      }, 5000);
+                    }
+                    
+                    stopScan();
+                  }
+                }
+              }, CONNECTION_CONFIG.scanTimeout);
+              
+            } catch (error) {
+              console.error('[Bluetooth] Erreur au démarrage du scan:', error);
+              showError('Erreur de démarrage du scan Bluetooth');
+              updateScanButton('Réessayer', '#e74c3c', true);
+              isScanning = false;
+              updateConnectionStatus('Erreur de scan');
+              updateDiscoveryInfo('Erreur de scan');
+            }
+          } else if (noble.state === 'poweredOff') {
+            showError('Bluetooth désactivé. Activez le Bluetooth et réessayez.');
             updateScanButton('Réessayer', '#e74c3c', true);
             isScanning = false;
-            updateConnectionStatus('Erreur de scan');
-            updateDiscoveryInfo('Erreur de scan');
+            updateConnectionStatus('Bluetooth désactivé');
+            updateDiscoveryInfo('Bluetooth désactivé');
+          } else if (noble.state === 'unsupported') {
+            showError('Bluetooth non supporté sur ce système.');
+            updateScanButton('Bluetooth non supporté', '#e74c3c', false);
+            isScanning = false;
+            updateConnectionStatus('Bluetooth non supporté');
+            updateDiscoveryInfo('Bluetooth non supporté');
+          } else {
+            // État unknown/resetting - attendre
+            console.log('[Bluetooth] État Noble-WinRT:', noble.state, '- Attente...');
+            updateConnectionStatus(`Initialisation Bluetooth (${noble.state})...`);
+            updateDiscoveryInfo('Initialisation Bluetooth...');
+            setTimeout(initNoble, 1000);
           }
-        } else if (noble.state === 'poweredOff') {
-          showError('Bluetooth désactivé. Activez le Bluetooth et réessayez.');
-          updateScanButton('Réessayer', '#e74c3c', true);
-          isScanning = false;
-          updateConnectionStatus('Bluetooth désactivé');
-          updateDiscoveryInfo('Bluetooth désactivé');
-        } else if (noble.state === 'unsupported') {
-          showError('Bluetooth non supporté sur ce système.');
-          updateScanButton('Bluetooth non supporté', '#e74c3c', false);
-          isScanning = false;
-          updateConnectionStatus('Bluetooth non supporté');
-          updateDiscoveryInfo('Bluetooth non supporté');
-        } else {
-          // État unknown/resetting - attendre
-          console.log('[Bluetooth] État Noble-WinRT:', noble.state, '- Attente...');
-          updateConnectionStatus(`Initialisation Bluetooth (${noble.state})...`);
-          updateDiscoveryInfo('Initialisation Bluetooth...');
-          setTimeout(initNoble, 1000);
-        }
-      };
+        };
 
-      initNoble();
-    }, 100); // Délai de 100ms pour s'assurer que l'arrêt est effectué
+        initNoble();
+      }, CONNECTION_CONFIG.scanDelay);
+    });
+  }
+
+  function ensureNobleReady(callback) {
+    if (noble.state === 'poweredOn') {
+      callback();
+    } else if (noble.state === 'unknown') {
+      // Forcer l'initialisation
+      noble._bindings.init();
+      setTimeout(() => ensureNobleReady(callback), 500);
+    } else {
+      setTimeout(() => ensureNobleReady(callback), 500);
+    }
   }
 
   function stopScan() {
     console.log('[Bluetooth] Arrêt du scan');
     isScanning = false;
+    
+    // Annuler les timeouts
+    if (scanTimeoutHandle) {
+      clearTimeout(scanTimeoutHandle);
+      scanTimeoutHandle = null;
+    }
+    if (autoRetryTimeoutHandle) {
+      clearTimeout(autoRetryTimeoutHandle);
+      autoRetryTimeoutHandle = null;
+    }
+    
     try {
       noble.stopScanning();
     } catch (error) {
@@ -309,6 +406,7 @@ function setupSensorInterface() {
         <p class="signal" style="color: ${color}">Force du signal: --%</p>
         <p class="state" style="color: ${color}">État: déconnecté</p>
         <p class="battery" style="color: ${color}">Batterie: --%</p>
+        <p class="connection-quality" style="color: ${color}">Qualité: --</p>
       </div>
       <div class="info-sensor">
         <h3>Données capteur</h3>
@@ -331,6 +429,7 @@ function setupSensorInterface() {
         if (info.address) element.querySelector('.address').textContent = `Adresse: ${info.address}`;
         if (info.rssi !== undefined) element.querySelector('.rssi').textContent = `RSSI: ${info.rssi}dBm`;
         if (info.signalStrength !== undefined) element.querySelector('.signal').textContent = `Force du signal: ${info.signalStrength}%`;
+        if (info.connectionQuality) element.querySelector('.connection-quality').textContent = `Qualité: ${info.connectionQuality}`;
       },
       updateAngles: (angles) => {
         element.querySelector('.roll').textContent = `Roll (X): ${angles.x}°`;
@@ -344,57 +443,117 @@ function setupSensorInterface() {
   }
 }
 
-// Monitoring des connexions
+// Monitoring des connexions amélioré
 function startConnectionMonitoring() {
+  // Toujours nettoyer l'ancien monitoring avant d'en créer un nouveau
   if (connectionMonitor) {
     clearInterval(connectionMonitor);
-  }
-  
-  if (isMonitoringActive) {
-    console.log('[Monitor] Monitoring déjà actif, pas de redémarrage');
-    return;
+    connectionMonitor = null;
   }
   
   console.log('[Monitor] Démarrage du monitoring des connexions');
   isMonitoringActive = true;
   
+  let noConnectionCounter = 0; // Compteur pour éviter les faux positifs
+  
   connectionMonitor = setInterval(() => {
     const leftConnected = connectedDevices.has(SENSOR_CONFIG.leftAddress.toLowerCase());
     const rightConnected = connectedDevices.has(SENSOR_CONFIG.rightAddress.toLowerCase());
+    const leftHasData = sensorsWithData.has(SENSOR_CONFIG.leftAddress.toLowerCase());
+    const rightHasData = sensorsWithData.has(SENSOR_CONFIG.rightAddress.toLowerCase());
     
-    if (!leftConnected && !rightConnected) {
-      console.log('[Monitor] Aucun capteur connecté - Déclenchement du reset dans 3 secondes');
-      updateConnectionStatus('Capteurs déconnectés - Reset automatique dans 3s...');
-      
-      // Attendre 3 secondes avant de reset pour éviter les faux positifs
-      setTimeout(() => {
-        const leftStillDisconnected = !connectedDevices.has(SENSOR_CONFIG.leftAddress.toLowerCase());
-        const rightStillDisconnected = !connectedDevices.has(SENSOR_CONFIG.rightAddress.toLowerCase());
+    // Log de debug détaillé
+    console.log('[Monitor] État détaillé - Gauche connecté:', leftConnected, 'avec données:', leftHasData, 
+                '- Droit connecté:', rightConnected, 'avec données:', rightHasData);
+    
+    // Vérifier la qualité de connexion
+    connectedDevices.forEach((peripheral, address) => {
+      const sensorInfo = knownSensors.get(address);
+      if (sensorInfo) {
+        const quality = evaluateConnectionQuality(sensorInfo);
+        updateSensorDisplay(sensorInfo.position, {
+          connected: true,
+          connectionQuality: quality
+        });
         
-        if (leftStillDisconnected && rightStillDisconnected && isMonitoringActive) {
-          console.log('[Monitor] Confirmé - Tous les capteurs déconnectés, reset automatique');
-          resetToSearchMode();
+        // Si la qualité est mauvaise, envisager une reconnexion préventive
+        if (quality === 'Faible' && !reconnectionAttempts.has(address)) {
+          console.log(`[Monitor] Qualité de connexion faible pour ${sensorInfo.position}, surveillance renforcée`);
         }
-      }, 3000);
+      }
+    });
+    
+    // Ne déclencher le reset que si vraiment aucun capteur n'est connecté
+    if (!leftConnected && !rightConnected && !isScanning) {
+      noConnectionCounter++;
+      console.log(`[Monitor] Aucun capteur connecté - Compteur: ${noConnectionCounter}`);
       
-    } else if (!leftConnected || !rightConnected) {
-      const missing = !leftConnected ? 'GAUCHE' : 'DROIT';
-      console.log(`[Monitor] Capteur ${missing} déconnecté`);
-      updateConnectionStatus(`Capteur ${missing} déconnecté - En attente...`);
+      if (noConnectionCounter >= 2) { // Attendre 2 cycles pour confirmer
+        console.log('[Monitor] Déconnexion confirmée - Déclenchement du reset');
+        updateConnectionStatus('Capteurs déconnectés - Reset automatique...');
+        
+        // Reset immédiat
+        resetToSearchMode();
+        noConnectionCounter = 0;
+      } else {
+        updateConnectionStatus('Vérification de la connexion...');
+      }
+    } else {
+      // Réinitialiser le compteur si au moins un capteur est connecté
+      if (noConnectionCounter > 0) {
+        noConnectionCounter = 0;
+      }
+      
+      if (!leftConnected || !rightConnected) {
+        const missing = !leftConnected ? 'GAUCHE' : 'DROIT';
+        console.log(`[Monitor] Capteur ${missing} déconnecté`);
+        updateConnectionStatus(`Capteur ${missing} déconnecté - En attente...`);
+      } else if (leftConnected && rightConnected) {
+        updateConnectionStatus('Deux capteurs connectés et fonctionnels');
+      }
     }
-  }, 3000); // Vérifier toutes les 3 secondes (moins fréquent)
+  }, CONNECTION_CONFIG.monitorInterval);
+}
+
+function evaluateConnectionQuality(sensorInfo) {
+  if (!sensorInfo.connectionHistory || sensorInfo.connectionHistory.length === 0) {
+    return 'Inconnue';
+  }
+  
+  const avgRssi = sensorInfo.averageRssi || -100;
+  const recentConnections = sensorInfo.connectionHistory.slice(-5);
+  const successRate = recentConnections.filter(c => c.success).length / recentConnections.length;
+  
+  if (avgRssi > -60 && successRate === 1) return 'Excellente';
+  if (avgRssi > -70 && successRate >= 0.8) return 'Bonne';
+  if (avgRssi > -80 && successRate >= 0.6) return 'Moyenne';
+  return 'Faible';
 }
 
 function resetToSearchMode() {
   console.log('[Reset] Retour au mode recherche');
-  isScanning = false;
-  isMonitoringActive = false;
   
-  // Arrêter le monitoring
+  // Arrêter le monitoring AVANT de modifier les états
   if (connectionMonitor) {
     clearInterval(connectionMonitor);
     connectionMonitor = null;
   }
+  
+  // Réinitialiser les états
+  isScanning = false;
+  isMonitoringActive = false;
+  
+  // Nettoyer les timeouts
+  if (scanTimeoutHandle) {
+    clearTimeout(scanTimeoutHandle);
+    scanTimeoutHandle = null;
+  }
+  if (autoRetryTimeoutHandle) {
+    clearTimeout(autoRetryTimeoutHandle);
+    autoRetryTimeoutHandle = null;
+  }
+  connectionTimeouts.forEach(timeout => clearTimeout(timeout));
+  connectionTimeouts.clear();
   
   // S'assurer que le scan est arrêté
   try {
@@ -429,24 +588,33 @@ function resetToSearchMode() {
   connectedDevices.clear();
   sensorsWithData.clear();
   calibrationOffsets.clear();
+  reconnectionAttempts.clear(); // Important: réinitialiser les tentatives
+  sensorUpdateCounter.clear(); // Réinitialiser les compteurs
   
   // Mettre à jour l'affichage des capteurs
   updateSensorDisplay('GAUCHE', { connected: false });
   updateSensorDisplay('DROIT', { connected: false });
   
-  console.log('[Reset] Mode recherche restauré, état Noble:', noble.state);
+  console.log('[Reset] Mode recherche restauré - Monitoring:', isMonitoringActive, 'Noble:', noble.state);
 }
 
-// Configuration Noble-WinRT avec filtrage intelligent
+// Configuration Noble-WinRT avec filtrage intelligent et gestion robuste
 function setupNoble() {
-  console.log('[Noble] Configuration des gestionnaires noble-winrt avec filtrage');
+  console.log('[Noble] Configuration des gestionnaires noble-winrt avec filtrage robuste');
   
   // Gestionnaire d'état Bluetooth
   noble.on('stateChange', (state) => {
     console.log('[Bluetooth] Changement d\'état Noble-WinRT:', state);
+    
+    // Si le Bluetooth est désactivé pendant le fonctionnement
+    if (state === 'poweredOff' && (isScanning || connectedDevices.size > 0)) {
+      console.log('[Bluetooth] Bluetooth désactivé - arrêt des opérations');
+      resetToSearchMode();
+      updateConnectionStatus('Bluetooth désactivé - Activez le Bluetooth');
+    }
   });
 
-  // Gestionnaire de découverte avec filtrage agressif
+  // Gestionnaire de découverte avec filtrage agressif et debouncing
   noble.on('discover', (peripheral) => {
     const deviceName = peripheral.advertisement.localName || '';
     const address = peripheral.address.toLowerCase();
@@ -462,11 +630,14 @@ function setupNoble() {
       return;
     }
     
-    // FILTRE 3: Éviter les doublons dans un court laps de temps
+    // FILTRE 3: Debouncing - éviter les découvertes en rafale
     const cacheKey = `${address}-${deviceName}`;
     const now = Date.now();
-    if (sensorDiscoveryCache.has(cacheKey) && (now - sensorDiscoveryCache.get(cacheKey)) < 2000) {
-      return; // Déjà traité récemment
+    if (sensorDiscoveryCache.has(cacheKey)) {
+      const lastDiscovery = sensorDiscoveryCache.get(cacheKey);
+      if ((now - lastDiscovery) < CONNECTION_CONFIG.discoveryDebounce) {
+        return; // Déjà traité récemment
+      }
     }
     sensorDiscoveryCache.set(cacheKey, now);
     
@@ -511,16 +682,47 @@ function handleDiscovery(peripheral) {
     return;
   }
 
-  // Connexion au capteur
-  console.log('[Bluetooth] Tentative de connexion à:', peripheral.address);
+  // Vérifier les tentatives de reconnexion
+  const attempts = reconnectionAttempts.get(address) || 0;
+  if (attempts >= CONNECTION_CONFIG.maxReconnectAttempts) {
+    console.log(`[Bluetooth] Maximum de tentatives atteint pour ${position}`);
+    updateConnectionStatus(`Impossible de connecter le capteur ${position}`);
+    return;
+  }
+
+  // Calculer le délai de backoff
+  const backoffDelay = CONNECTION_CONFIG.reconnectDelay * Math.pow(CONNECTION_CONFIG.backoffMultiplier, attempts);
+  
+  // Nettoyer toute référence précédente du périphérique
+  if (peripheral._events) {
+    peripheral.removeAllListeners();
+  }
+  
+  // Connexion au capteur avec timeout
+  console.log(`[Bluetooth] Tentative de connexion à ${peripheral.address} (tentative ${attempts + 1})`);
+  reconnectionAttempts.set(address, attempts + 1);
+  
+  // Créer un timeout pour cette tentative de connexion
+  const connectionTimeout = setTimeout(() => {
+    console.log(`[Bluetooth] Timeout de connexion pour ${position}`);
+    handleConnectionError(null, peripheral, position, color);
+  }, CONNECTION_CONFIG.connectionTimeout);
+  
+  connectionTimeouts.set(address, connectionTimeout);
+  
   peripheral.connect((error) => {
+    // Annuler le timeout si la connexion aboutit ou échoue
+    clearTimeout(connectionTimeout);
+    connectionTimeouts.delete(address);
+    
     if (error) {
-      console.error('[Bluetooth] ❌ Erreur connexion:', error);
+      handleConnectionError(error, peripheral, position, color);
       return;
     }
 
     console.log('[Bluetooth] Connecté à:', peripheral.address);
     connectedDevices.set(address, peripheral);
+    reconnectionAttempts.delete(address); // Reset les tentatives en cas de succès
     
     // Mettre à jour le cache avec les infos de connexion
     updateSensorCache(peripheral, position);
@@ -533,14 +735,23 @@ function handleDiscovery(peripheral) {
       signalStrength: Math.max(0, Math.min(100, 100 + peripheral.rssi))
     });
 
-    // Découvrir les services
+    // Découvrir les services avec gestion d'erreur
     peripheral.discoverAllServicesAndCharacteristics((error, services, characteristics) => {
       if (error) {
         console.error('[Bluetooth] Erreur découverte services:', error);
+        // Tenter une reconnexion
+        peripheral.disconnect();
         return;
       }
 
       console.log('[Bluetooth] Services découverts pour:', peripheral.address, '- Caractéristiques:', characteristics.length);
+      
+      // Nettoyer tous les listeners précédents sur les caractéristiques
+      characteristics.forEach(char => {
+        if (char._events) {
+          char.removeAllListeners('data');
+        }
+      });
 
       // Envoyer commande batterie pour le capteur gauche
       if (position === 'GAUCHE' && characteristics.length > 0) {
@@ -551,29 +762,71 @@ function handleDiscovery(peripheral) {
         });
       }
 
-      // Activer les notifications
+      // Activer les notifications avec gestion d'erreur
+      let successfulNotifications = 0;
+      let notificationPromises = [];
+      
       characteristics.forEach((characteristic, index) => {
-        characteristic.notify(true, (error) => {
-          if (error) {
-            console.error('[Bluetooth] Erreur notification caractéristique', index, ':', error);
-            return;
-          }
+        // S'assurer qu'on n'a pas déjà des listeners actifs
+        characteristic.removeAllListeners('data');
+        
+        const promise = new Promise((resolve) => {
+          characteristic.notify(true, (error) => {
+            if (error) {
+              console.error('[Bluetooth] Erreur notification caractéristique', index, ':', error);
+              resolve(false);
+              return;
+            }
 
-          console.log('[Bluetooth] Notification activée pour caractéristique', index);
+            successfulNotifications++;
+            console.log('[Bluetooth] Notification activée pour caractéristique', index);
 
-          characteristic.on('data', (data) => {
-            handleSensorData(data, peripheral.address, position, color);
+            // Ajouter UN SEUL listener pour les données
+            characteristic.on('data', (data) => {
+              handleSensorData(data, peripheral.address, position, color);
+            });
+            
+            resolve(true);
           });
         });
+        
+        notificationPromises.push(promise);
+      });
+      
+      // Attendre que toutes les notifications soient configurées
+      Promise.all(notificationPromises).then((results) => {
+        console.log(`[Bluetooth] ${successfulNotifications} notifications actives pour ${position}`);
+        
+        if (successfulNotifications === 0) {
+          console.error('[Bluetooth] Aucune notification active, déconnexion');
+          peripheral.disconnect();
+        }
       });
     });
 
-    // Gérer la déconnexion avec mise à jour du cache
+    // Gérer la déconnexion avec mise à jour du cache et reconnexion automatique
+    peripheral.removeAllListeners('disconnect'); // Nettoyer d'abord
     peripheral.once('disconnect', () => {
       console.log('[Bluetooth] Déconnexion détectée:', peripheral.address, position);
+      
+      // Nettoyer les références du périphérique
       connectedDevices.delete(address);
       sensorsWithData.delete(address);
+      calibrationOffsets.delete(address); // Important: réinitialiser la calibration
+      sensorUpdateCounter.delete(address);
+      
+      // Mettre à jour l'affichage
       updateSensorDisplay(position, { connected: false });
+      
+      // Enregistrer la déconnexion dans l'historique
+      const sensorInfo = knownSensors.get(address);
+      if (sensorInfo) {
+        sensorInfo.connectionHistory.push({
+          timestamp: Date.now(),
+          rssi: peripheral.rssi || -100,
+          success: false
+        });
+      }
       
       // Mettre à jour le statut de connexion
       const leftConnected = connectedDevices.has(SENSOR_CONFIG.leftAddress.toLowerCase());
@@ -585,21 +838,71 @@ function handleDiscovery(peripheral) {
         if (statusDisplay) {
           statusDisplay.textContent = 'Tous les capteurs déconnectés';
         }
+        
+        // Forcer la vérification du monitoring si tous déconnectés
+        if (isMonitoringActive && !isScanning) {
+          console.log('[Bluetooth] Forcer vérification monitoring après déconnexion totale');
+          // Le monitoring devrait détecter et faire le reset
+        }
+      }
+      
+      // Tentative de reconnexion automatique si on est en mode scan
+      if (isScanning && reconnectionAttempts.get(address) < CONNECTION_CONFIG.maxReconnectAttempts) {
+        console.log(`[Bluetooth] Tentative de reconnexion automatique pour ${position}`);
+        setTimeout(() => {
+          if (isScanning && !connectedDevices.has(address)) {
+            // Forcer une nouvelle découverte
+            noble.startScanning([], false);
+          }
+        }, backoffDelay);
       }
     });
   });
 }
 
+function handleConnectionError(error, peripheral, position, color) {
+  console.error('[Bluetooth] Erreur connexion:', error || 'Timeout');
+  
+  const address = peripheral.address.toLowerCase();
+  const attempts = reconnectionAttempts.get(address) || 0;
+  
+  // Enregistrer l'échec dans l'historique
+  const sensorInfo = knownSensors.get(address);
+  if (sensorInfo) {
+    sensorInfo.connectionHistory.push({
+      timestamp: Date.now(),
+      rssi: peripheral.rssi || -100,
+      success: false
+    });
+  }
+  
+  if (attempts < CONNECTION_CONFIG.maxReconnectAttempts) {
+    const backoffDelay = CONNECTION_CONFIG.reconnectDelay * Math.pow(CONNECTION_CONFIG.backoffMultiplier, attempts);
+    console.log(`[Bluetooth] Nouvelle tentative dans ${backoffDelay}ms`);
+    updateConnectionStatus(`Connexion échouée ${position} - Nouvelle tentative...`);
+    
+    setTimeout(() => {
+      if (isScanning && !connectedDevices.has(address)) {
+        // Relancer le scan pour redécouvrir le périphérique
+        noble.startScanning([], false);
+      }
+    }, backoffDelay);
+  } else {
+    updateConnectionStatus(`Impossible de connecter ${position} après ${attempts} tentatives`);
+  }
+}
+
 function handleSensorData(data, address, position, color) {
   if (!data || data.length < 1) return;
 
-  // Log des données reçues (première fois seulement)
-  if (!sensorsWithData.has(address)) {
-    console.log('[Bluetooth] Premières données reçues de:', address, 'longueur:', data.length);
-  }
-
   // Données d'angle
   if (data[0] === 0x55 && data[1] === 0x61 && data.length >= 20) {
+    // Log des données reçues (première fois seulement)
+    if (!sensorsWithData.has(address)) {
+      console.log('[Bluetooth] Premières données d\'angle reçues de:', address);
+      sensorsWithData.set(address, true);
+    }
+    
     const angles = {
       x: ((data[15] << 8 | data[14]) / 32768 * 180),
       y: ((data[17] << 8 | data[16]) / 32768 * 180),
@@ -623,10 +926,11 @@ function handleSensorData(data, address, position, color) {
       z: normalizeAngle(angles.z - offsets.z, true)
     };
 
-    // Marquer le capteur comme ayant des données
-    if (!sensorsWithData.has(address)) {
-      console.log('[Bluetooth] Capteur', position, 'commence à envoyer des données');
-      sensorsWithData.set(address, true);
+    // Log périodique pour debug (toutes les 50 updates)
+    const updateCount = (sensorUpdateCounter.get(address) || 0) + 1;
+    sensorUpdateCounter.set(address, updateCount);
+    if (updateCount % 50 === 0) {
+      console.log(`[Data] ${position} - Angles: X:${normalizedAngles.x.toFixed(1)}° Y:${normalizedAngles.y.toFixed(1)}° Z:${normalizedAngles.z.toFixed(1)}°`);
     }
 
     // Mettre à jour l'affichage
@@ -658,6 +962,13 @@ function handleSensorData(data, address, position, color) {
 
     console.log('[Bluetooth] Batterie', position, ':', percentage, '%');
     updateSensorBattery(position, percentage);
+  } else {
+    // Log des données non reconnues pour debug
+    const updateCount = sensorUpdateCounter.get(address) || 0;
+    sensorUpdateCounter.set(address, updateCount + 1);
+    if (updateCount % 100 === 0) {
+      console.log('[Data] Données non reconnues:', 'Header:', data[0], data[1], 'Longueur:', data.length);
+    }
   }
 }
 
@@ -701,17 +1012,16 @@ function checkBothSensorsReady() {
     // Arrêter le scan automatiquement
     try {
       noble.stopScanning();
+      isScanning = false;
     } catch (error) {
       console.error('[Bluetooth] Erreur arrêt scan:', error);
     }
-    isScanning = false;
     
-    // Démarrer le monitoring seulement s'il n'est pas déjà actif
-    if (!isMonitoringActive) {
-      startConnectionMonitoring();
-    }
+    // Toujours redémarrer le monitoring après une connexion complète
+    console.log('[Bluetooth] Redémarrage du monitoring après connexion complète');
+    startConnectionMonitoring();
   } else {
-    // Capteurs partiellement connectés - continuer le scan un peu plus longtemps
+    // Capteurs partiellement connectés - continuer le scan
     if (leftConnected || rightConnected) {
       const missing = !leftConnected ? 'GAUCHE' : 'DROIT';
       console.log(`[Bluetooth] Capteur ${missing} manquant, scan continue...`);
@@ -741,12 +1051,14 @@ function updateSensorDisplay(position, info) {
       if (info.address) display.querySelector('.address').textContent = `Adresse: ${info.address}`;
       if (info.rssi !== undefined) display.querySelector('.rssi').textContent = `RSSI: ${info.rssi}dBm`;
       if (info.signalStrength !== undefined) display.querySelector('.signal').textContent = `Force du signal: ${info.signalStrength}%`;
+      if (info.connectionQuality) display.querySelector('.connection-quality').textContent = `Qualité: ${info.connectionQuality}`;
     } else {
       // Réinitialiser l'affichage quand déconnecté
       display.querySelector('.address').textContent = 'Adresse: --';
       display.querySelector('.rssi').textContent = 'RSSI: --';
       display.querySelector('.signal').textContent = 'Force du signal: --%';
       display.querySelector('.battery').textContent = 'Batterie: --%';
+      display.querySelector('.connection-quality').textContent = 'Qualité: --';
       display.querySelector('.roll').textContent = 'Roll (X): --°';
       display.querySelector('.pitch').textContent = 'Pitch (Y): --°';
       display.querySelector('.yaw').textContent = 'Yaw (Z): --°';
@@ -789,7 +1101,57 @@ document.addEventListener('DOMContentLoaded', () => {
   setupSensorInterface();
   setupNoble();
   
-  console.log('[App] Application prête (noble-winrt with smart reconnection)');
+  console.log('[App] Application prête (noble-winrt with robust reconnection)');
   console.log('[App] Configuration capteurs:', SENSOR_CONFIG);
+  console.log('[App] Configuration connexion:', CONNECTION_CONFIG);
   console.log('[App] Cache des capteurs:', Array.from(knownSensors.entries()));
 });
+
+// Gestion de la fermeture propre de l'application
+if (window.require) {
+  const { ipcRenderer } = window.require('electron');
+  
+  // Écouter le signal de fermeture
+  ipcRenderer.on('app-closing', () => {
+    console.log('[App] Signal de fermeture reçu, nettoyage en cours...');
+    
+    // Arrêter le monitoring
+    if (connectionMonitor) {
+      clearInterval(connectionMonitor);
+      connectionMonitor = null;
+    }
+    
+    // Arrêter les timeouts
+    if (scanTimeoutHandle) {
+      clearTimeout(scanTimeoutHandle);
+    }
+    if (autoRetryTimeoutHandle) {
+      clearTimeout(autoRetryTimeoutHandle);
+    }
+    connectionTimeouts.forEach(timeout => clearTimeout(timeout));
+    
+    // Déconnecter tous les capteurs
+    connectedDevices.forEach((peripheral, address) => {
+      try {
+        console.log('[App] Déconnexion du capteur:', address);
+        peripheral.disconnect();
+      } catch (error) {
+        console.error('[App] Erreur déconnexion:', error);
+      }
+    });
+    
+    // Arrêter Noble
+    try {
+      if (noble.state === 'poweredOn') {
+        noble.stopScanning();
+      }
+    } catch (error) {
+      console.error('[App] Erreur arrêt Noble:', error);
+    }
+    
+    // Signaler que le nettoyage est terminé
+    setTimeout(() => {
+      ipcRenderer.send('cleanup-complete');
+    }, 200);
+  });
+}

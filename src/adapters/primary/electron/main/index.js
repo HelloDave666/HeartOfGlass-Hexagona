@@ -34,6 +34,25 @@ function createWindow() {
     console.log('[Main] Fenêtre affichée, DevTools ouvertes');
   });
 
+  // Gérer la fermeture proprement
+  mainWindow.on('close', (event) => {
+    console.log('[Main] Fermeture de la fenêtre demandée');
+    
+    // Envoyer un signal au renderer pour nettoyer
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('app-closing');
+      
+      // Attendre un peu pour le nettoyage
+      setTimeout(() => {
+        mainWindow = null;
+        app.quit();
+      }, 500);
+      
+      // Empêcher la fermeture immédiate
+      event.preventDefault();
+    }
+  });
+
   // Nettoyer à la fermeture
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -48,6 +67,7 @@ app.whenReady().then(() => {
 
 // Gestion de la fermeture
 app.on('window-all-closed', () => {
+  console.log('[App] Toutes les fenêtres fermées');
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -65,8 +85,22 @@ process.on('uncaughtException', (error) => {
   console.error('[App] Erreur non capturée:', error);
 });
 
+// Gestion propre de la fermeture de l'app
+app.on('before-quit', () => {
+  console.log('[App] Fermeture de l\'application');
+});
+
 // Log des messages du renderer
 ipcMain.on('log', (event, { level, message }) => {
   const timestamp = new Date().toLocaleTimeString();
   console.log(`[Renderer ${level}] ${timestamp} - ${message}`);
+});
+
+// Réponse au renderer que le nettoyage est terminé
+ipcMain.on('cleanup-complete', () => {
+  console.log('[Main] Nettoyage terminé, fermeture de l\'application');
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.destroy();
+  }
+  app.quit();
 });
