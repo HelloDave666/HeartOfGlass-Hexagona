@@ -1,4 +1,5 @@
 ﻿// src/adapters/primary/electron/main/index.js
+// Version stable et simplifiée
 
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
@@ -10,15 +11,14 @@ function createWindow() {
     width: 1920,
     height: 1080,
     webPreferences: {
-      // Configuration temporaire pour faire fonctionner Noble
-      // (similaire à l'ancien projet qui fonctionnait)
+      // Configuration compatible avec Noble (comme l'ancien projet)
       nodeIntegration: true,
       contextIsolation: false,
       backgroundThrottling: false,
       webSecurity: false
     },
     backgroundColor: '#1a1a1a',
-    show: false // Afficher quand prêt
+    show: false
   });
 
   // Charger l'interface
@@ -27,30 +27,9 @@ function createWindow() {
   // Afficher quand prêt
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
-    
-    // Toujours ouvrir les DevTools pour le débogage
+    // Toujours ouvrir les DevTools pour le debug
     mainWindow.webContents.openDevTools();
-    
     console.log('[Main] Fenêtre affichée, DevTools ouvertes');
-  });
-
-  // Gérer la fermeture proprement
-  mainWindow.on('close', (event) => {
-    console.log('[Main] Fermeture de la fenêtre demandée');
-    
-    // Envoyer un signal au renderer pour nettoyer
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('app-closing');
-      
-      // Attendre un peu pour le nettoyage
-      setTimeout(() => {
-        mainWindow = null;
-        app.quit();
-      }, 500);
-      
-      // Empêcher la fermeture immédiate
-      event.preventDefault();
-    }
   });
 
   // Nettoyer à la fermeture
@@ -67,7 +46,6 @@ app.whenReady().then(() => {
 
 // Gestion de la fermeture
 app.on('window-all-closed', () => {
-  console.log('[App] Toutes les fenêtres fermées');
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -85,22 +63,21 @@ process.on('uncaughtException', (error) => {
   console.error('[App] Erreur non capturée:', error);
 });
 
-// Gestion propre de la fermeture de l'app
-app.on('before-quit', () => {
-  console.log('[App] Fermeture de l\'application');
-});
-
 // Log des messages du renderer
 ipcMain.on('log', (event, { level, message }) => {
   const timestamp = new Date().toLocaleTimeString();
   console.log(`[Renderer ${level}] ${timestamp} - ${message}`);
 });
 
-// Réponse au renderer que le nettoyage est terminé
+// Gestion de la fermeture propre
+app.on('before-quit', () => {
+  if (mainWindow) {
+    mainWindow.webContents.send('app-closing');
+  }
+});
+
+// Écouter la confirmation de nettoyage
 ipcMain.on('cleanup-complete', () => {
   console.log('[Main] Nettoyage terminé, fermeture de l\'application');
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.destroy();
-  }
   app.quit();
 });

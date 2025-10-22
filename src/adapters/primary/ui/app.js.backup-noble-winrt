@@ -1,0 +1,651 @@
+﻿// src/adapters/primary/ui/app.js
+// PHASE 1 : Version simplifiée et robuste - FINALE
+// Basée sur les principes de l'ancien code qui fonctionnait
+
+const noble = require('noble-winrt');
+
+console.log('Heart of Glass - Version simplifiée stable FINALE');
+
+// ========================================
+// ÉTAT SIMPLE (comme l'ancien code)
+// ========================================
+const connectedDevices = new Set();  // Adresses connectées
+const sensorsWithData = new Set();   // Adresses recevant des données
+const peripheralRefs = new Map();    // Référence aux objets peripheral
+const calibrationOffsets = new Map();
+
+let isScanning = false;
+
+// Configuration des capteurs
+const SENSOR_CONFIG = {
+  leftAddress: 'ce:de:c2:f5:17:be',
+  rightAddress: 'f0:70:c4:de:d1:22',
+  leftColor: 'blue',
+  rightColor: 'green'
+};
+
+// Configuration simple de reconnexion
+const RECONNECT_CONFIG = {
+  maxAttempts: 5,          // Plus de tentatives
+  delay: 2000,
+  scanTimeout: 45000,      // Plus de temps pour scanner
+  nobleResetDelay: 8000,   // 8 secondes pour reset Noble
+  retryAfterBadConnection: true  // Retry auto si < 6 caractéristiques
+};
+
+const reconnectAttempts = new Map();
+
+// ========================================
+// FONCTIONS UTILITAIRES
+// ========================================
+function getSensorInfo(address) {
+  const addrLower = address.toLowerCase();
+  if (addrLower === SENSOR_CONFIG.leftAddress.toLowerCase()) {
+    return { position: 'GAUCHE', color: SENSOR_CONFIG.leftColor };
+  }
+  if (addrLower === SENSOR_CONFIG.rightAddress.toLowerCase()) {
+    return { position: 'DROIT', color: SENSOR_CONFIG.rightColor };
+  }
+  return null;
+}
+
+function normalizeAngle(angle) {
+  while (angle > 180) angle -= 360;
+  while (angle < -180) angle += 360;
+  return angle;
+}
+
+// ========================================
+// INTERFACE UTILISATEUR
+// ========================================
+function setupTabs() {
+  const tabButtons = document.querySelectorAll('.tab-button');
+  const tabContents = document.querySelectorAll('.tab-content');
+  
+  tabButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const tabId = button.getAttribute('data-tab');
+      
+      tabButtons.forEach(btn => btn.classList.remove('active'));
+      tabContents.forEach(content => content.classList.remove('active'));
+      
+      button.classList.add('active');
+      document.getElementById(tabId)?.classList.add('active');
+    });
+  });
+}
+
+function setupSensorInterface() {
+  const sensorContainer = document.getElementById('sensorContainer');
+  if (!sensorContainer) return;
+
+  sensorContainer.innerHTML = `
+    <div class="sensor-controls">
+      <button id="scanButton" class="scan-button">
+        Rechercher les capteurs
+      </button>
+      <div id="connectionStatus" class="connection-status"></div>
+    </div>
+    <div id="deviceList" class="device-list"></div>
+  `;
+
+  const scanButton = /** @type {HTMLButtonElement} */ (document.getElementById('scanButton'));
+  scanButton.addEventListener('click', toggleScan);
+  
+  createDeviceDisplays();
+}
+
+function createDeviceDisplays() {
+  const deviceList = document.getElementById('deviceList');
+  
+  ['GAUCHE', 'DROIT'].forEach(position => {
+    const color = position === 'GAUCHE' ? SENSOR_CONFIG.leftColor : SENSOR_CONFIG.rightColor;
+    
+    const element = document.createElement('div');
+    element.className = 'device-info';
+    element.dataset.position = position;
+    element.innerHTML = `
+      <div class="status-indicator status-disconnected"></div>
+      <div class="info-basic">
+        <h3 style="color: ${color}">Capteur ${position}</h3>
+        <p class="state">État: déconnecté</p>
+        <p class="address">Adresse: --</p>
+        <p class="rssi">Signal: --</p>
+        <p class="battery">Batterie: --%</p>
+      </div>
+      <div class="info-sensor">
+        <h3>Données</h3>
+        <p class="roll" style="color: ${color}">Roll (X): --°</p>
+        <p class="pitch" style="color: ${color}">Pitch (Y): --°</p>
+        <p class="yaw" style="color: ${color}">Yaw (Z): --°</p>
+      </div>
+    `;
+    
+    deviceList.appendChild(element);
+  });
+}
+
+// ========================================
+// GESTION DU SCAN
+// ========================================
+function toggleScan() {
+  if (isScanning) {
+    stopScan();
+  } else {
+    startScan();
+  }
+}
+
+function startScan() {
+  console.log('[Scan] Demande de démarrage - isScanning:', isScanning);
+  
+  if (connectedDevices.size === 2 && sensorsWithData.size === 2) {
+    updateStatus('Les deux capteurs sont déjà connectés');
+    console.log('[Scan] Annulé - Déjà connectés');
+    return;
+  }
+  
+  if (isScanning) {
+    console.log('[Scan] Déjà en cours');
+    return;
+  }
+  
+  isScanning = true;
+  reconnectAttempts.clear();
+  
+  console.log('[Scan] Démarrage effectif...');
+  updateScanButton('Recherche...', '#e74c3c', false);
+  updateStatus('Recherche des capteurs...');
+  
+  waitForNoble(() => {
+    try {
+      noble.stopScanning();
+      console.log('[Scan] Noble nettoyé avant démarrage');
+    } catch (error) {
+      console.log('[Scan] Noble déjà arrêté');
+    }
+    
+    // Attendre plus longtemps que Noble se stabilise (surtout après déconnexion)
+    updateStatus('Initialisation Bluetooth...');
+    
+    setTimeout(() => {
+      try {
+        noble.startScanning([], false);
+        console.log('[Scan] Scan actif');
+        updateStatus('Scan actif - Recherche des capteurs...');
+        
+        setTimeout(() => {
+          if (isScanning) {
+            const leftConnected = connectedDevices.has(SENSOR_CONFIG.leftAddress.toLowerCase());
+            const rightConnected = connectedDevices.has(SENSOR_CONFIG.rightAddress.toLowerCase());
+            
+            if (!leftConnected || !rightConnected) {
+              console.log('[Scan] Timeout atteint');
+              const missing = [];
+              if (!leftConnected) missing.push('GAUCHE');
+              if (!rightConnected) missing.push('DROIT');
+              updateStatus(`Timeout - ${missing.join(' et ')} non trouvé(s)`);
+              stopScan();
+            }
+          }
+        }, RECONNECT_CONFIG.scanTimeout);
+        
+      } catch (error) {
+        console.error('[Scan] Erreur:', error);
+        updateStatus('Erreur de scan');
+        isScanning = false;
+        updateScanButton('Réessayer', '#e74c3c', true);
+      }
+    }, 2000); // 2 secondes pour stabiliser Noble après nettoyage
+  });
+}
+
+function stopScan() {
+  console.log('[Scan] Demande arrêt - isScanning:', isScanning);
+  
+  if (!isScanning) {
+    console.log('[Scan] Déjà arrêté');
+    return;
+  }
+  
+  isScanning = false;
+  
+  try {
+    noble.stopScanning();
+    console.log('[Scan] Noble stopScanning() appelé');
+  } catch (error) {
+    console.error('[Scan] Erreur arrêt:', error);
+  }
+  
+  updateScanButton('Stabilisation Noble...', '#95a5a6', false);
+  updateStatus('Stabilisation Bluetooth...');
+  
+  setTimeout(() => {
+    console.log('[Scan] Stabilisation terminée - Prêt pour nouveau scan');
+    updateScanButton('Rechercher les capteurs', '#4CAF50', true);
+    updateStatus('Prêt pour nouveau scan');
+  }, 5000); // 5 secondes pour stabiliser Noble
+}
+
+function waitForNoble(callback) {
+  if (noble.state === 'poweredOn') {
+    callback();
+  } else if (noble.state === 'poweredOff') {
+    updateStatus('Bluetooth désactivé');
+    isScanning = false;
+    updateScanButton('Bluetooth désactivé', '#e74c3c', false);
+  } else {
+    console.log('[Noble] État:', noble.state, '- Attente...');
+    setTimeout(() => waitForNoble(callback), 500);
+  }
+}
+
+// ========================================
+// GESTION DES CONNEXIONS
+// ========================================
+function handleDiscovery(peripheral) {
+  const address = peripheral.address.toLowerCase();
+  const sensorInfo = getSensorInfo(address);
+  
+  if (!sensorInfo) {
+    return;
+  }
+  
+  console.log('[Découverte]', sensorInfo.position, '-', peripheral.rssi, 'dBm - isScanning:', isScanning);
+  
+  if (connectedDevices.has(address)) {
+    console.log('[Découverte] Déjà connecté, ignoré');
+    return;
+  }
+  
+  if (!isScanning) {
+    console.log('[Découverte] Scan inactif, ignoré');
+    return;
+  }
+  
+  const attempts = reconnectAttempts.get(address) || 0;
+  if (attempts >= RECONNECT_CONFIG.maxAttempts) {
+    console.log('[Découverte] Max tentatives atteint, ignoré');
+    return;
+  }
+  
+  connectSensor(peripheral, sensorInfo);
+}
+
+function connectSensor(peripheral, sensorInfo) {
+  const address = peripheral.address.toLowerCase();
+  const { position, color } = sensorInfo;
+  
+  const attempts = reconnectAttempts.get(address) || 0;
+  reconnectAttempts.set(address, attempts + 1);
+  
+  console.log(`[Connexion] ${position} - Tentative ${attempts + 1}`);
+  
+  peripheral.removeAllListeners();
+  
+  peripheral.connect((error) => {
+    if (error) {
+      console.error('[Connexion] Erreur:', error);
+      
+      const attempts = reconnectAttempts.get(address) || 0;
+      if (attempts >= RECONNECT_CONFIG.maxAttempts) {
+        updateStatus(`Échec connexion ${position} après ${attempts} tentatives`);
+        console.log('[Connexion] Max tentatives atteint pour', position);
+      } else {
+        console.log('[Connexion] Échec, tentatives:', attempts);
+      }
+      return;
+    }
+    
+    console.log('[Connexion] Réussie -', position);
+    
+    connectedDevices.add(address);
+    peripheralRefs.set(address, peripheral);
+    reconnectAttempts.delete(address);
+    
+    updateDeviceDisplay(position, { 
+      connected: true, 
+      address: peripheral.address,
+      rssi: peripheral.rssi 
+    });
+    
+    peripheral.discoverAllServicesAndCharacteristics((error, services, characteristics) => {
+      if (error) {
+        console.error('[Services] Erreur:', error);
+        peripheral.disconnect();
+        return;
+      }
+      
+      console.log('[Services]', characteristics.length, 'caractéristiques trouvées pour', position);
+      
+      // Si moins de 6 caractéristiques, attendre un peu puis réessayer
+      if (characteristics.length < 6) {
+        console.warn('[Services] ATTENTION - Seulement', characteristics.length, 'caractéristiques pour', position);
+        
+        const attempts = reconnectAttempts.get(address) || 1;
+        
+        if (attempts < RECONNECT_CONFIG.maxAttempts && RECONNECT_CONFIG.retryAfterBadConnection) {
+          console.log('[Services] Retry', attempts, '/', RECONNECT_CONFIG.maxAttempts, '- Attente 3s avant reconnexion');
+          updateStatus(`${position}: Connexion incomplète, nouvelle tentative...`);
+          
+          // Attendre 3 secondes puis déconnecter pour retry
+          setTimeout(() => {
+            peripheral.disconnect();
+          }, 3000);
+        } else {
+          console.error('[Services] Max tentatives atteint pour', position);
+          updateStatus(`Impossible de connecter ${position} correctement`);
+          peripheral.disconnect();
+        }
+        return;
+      }
+      
+      console.log('[Services] ✓ Connexion complète pour', position);
+      
+      setTimeout(() => {
+        console.log('[Notifications] Début activation pour', position);
+        let activeNotifications = 0;
+        
+        characteristics.forEach((char, index) => {
+          char.removeAllListeners('data');
+          
+          char.notify(true, (error) => {
+            if (error) {
+              console.error('[Notifications] Erreur sur char', index, ':', error);
+              return;
+            }
+            
+            activeNotifications++;
+            console.log('[Notifications] Activée', activeNotifications, '/', characteristics.length, 'pour', position);
+            
+            char.on('data', (data) => {
+              handleSensorData(data, address, position, color);
+            });
+          });
+        });
+        
+        setTimeout(() => {
+          console.log('[Notifications] Bilan -', activeNotifications, 'actives sur', characteristics.length, 'pour', position);
+          if (activeNotifications === 0) {
+            console.error('[Notifications] AUCUNE notification active - Reconnexion');
+            peripheral.disconnect();
+          }
+        }, 2000);
+        
+      }, 1500);
+      
+      if (position === 'GAUCHE' && characteristics.length > 0) {
+        setTimeout(() => {
+          const batteryCmd = Buffer.from([0xFF, 0xAA, 0x27, 0x64, 0x00]);
+          characteristics[0].write(batteryCmd, true, (error) => {
+            if (error) console.error('[Batterie] Erreur:', error);
+            else console.log('[Batterie] Commande envoyée');
+          });
+        }, 2000);
+      }
+    });
+    
+    peripheral.once('disconnect', () => {
+      console.log('[Déconnexion]', position);
+      
+      try {
+        peripheral.removeAllListeners();
+      } catch (error) {
+        console.log('[Déconnexion] Nettoyage listeners:', error.message);
+      }
+      
+      connectedDevices.delete(address);
+      sensorsWithData.delete(address);
+      calibrationOffsets.delete(address);
+      peripheralRefs.delete(address);
+      
+      updateDeviceDisplay(position, { connected: false });
+      
+      console.log('[Déconnexion] État - Connectés:', connectedDevices.size, 'isScanning:', isScanning);
+      
+      if (connectedDevices.size === 0) {
+        console.log('[Déconnexion] TOUS capteurs déconnectés - ARRÊT COMPLET');
+        
+        if (isScanning) {
+          isScanning = false;
+          try {
+            noble.stopScanning();
+            console.log('[Déconnexion] Scan arrêté');
+          } catch (error) {
+            console.log('[Déconnexion] Erreur arrêt scan:', error.message);
+          }
+        }
+        
+        reconnectAttempts.clear();
+        
+        // Délai plus long pour que Noble se nettoie complètement
+        updateScanButton('Nettoyage Noble...', '#95a5a6', false);
+        updateStatus('Attente nettoyage Bluetooth (8s)...');
+        
+        setTimeout(() => {
+          console.log('[Déconnexion] Noble nettoyé - Prêt pour nouveau scan');
+          updateStatus('Capteurs déconnectés - Cliquez pour rechercher');
+          updateScanButton('Rechercher les capteurs', '#4CAF50', true);
+        }, RECONNECT_CONFIG.nobleResetDelay);
+      }
+    });
+    
+    checkIfReady();
+  });
+}
+
+// ========================================
+// TRAITEMENT DES DONNÉES
+// ========================================
+function handleSensorData(data, address, position, color) {
+  if (!data || data.length < 1) return;
+  
+  if (data[0] === 0x55 && data[1] === 0x61 && data.length >= 20) {
+    
+    if (!sensorsWithData.has(address)) {
+      console.log('[Données] Premières données -', position);
+      sensorsWithData.add(address);
+      checkIfReady();
+    }
+    
+    const angles = {
+      x: ((data[15] << 8 | data[14]) / 32768 * 180),
+      y: ((data[17] << 8 | data[16]) / 32768 * 180),
+      z: ((data[19] << 8 | data[18]) / 32768 * 180)
+    };
+    
+    if (!calibrationOffsets.has(address)) {
+      calibrationOffsets.set(address, { x: angles.x, y: angles.y, z: angles.z });
+    }
+    
+    const offsets = calibrationOffsets.get(address);
+    const normalized = {
+      x: normalizeAngle(angles.x - offsets.x),
+      y: normalizeAngle(angles.y - offsets.y),
+      z: normalizeAngle(angles.z - offsets.z)
+    };
+    
+    updateAngles(position, normalized);
+  }
+  else if (data[0] === 0x55 && data[1] === 0x71 && data.length >= 6) {
+    const batteryValue = (data[5] << 8) | data[4];
+    let percentage = 0;
+    
+    if (batteryValue > 830) percentage = 100;
+    else if (batteryValue > 393) percentage = 90;
+    else if (batteryValue > 387) percentage = 75;
+    else if (batteryValue > 382) percentage = 60;
+    else if (batteryValue > 379) percentage = 50;
+    else if (batteryValue > 377) percentage = 40;
+    else if (batteryValue > 373) percentage = 30;
+    else if (batteryValue > 370) percentage = 20;
+    else if (batteryValue > 368) percentage = 15;
+    else if (batteryValue > 350) percentage = 10;
+    else if (batteryValue > 340) percentage = 5;
+    
+    updateBattery(position, percentage);
+  }
+}
+
+function checkIfReady() {
+  const leftConnected = connectedDevices.has(SENSOR_CONFIG.leftAddress.toLowerCase());
+  const rightConnected = connectedDevices.has(SENSOR_CONFIG.rightAddress.toLowerCase());
+  const leftHasData = sensorsWithData.has(SENSOR_CONFIG.leftAddress.toLowerCase());
+  const rightHasData = sensorsWithData.has(SENSOR_CONFIG.rightAddress.toLowerCase());
+
+  console.log('[Ready?] Gauche:', leftConnected && leftHasData, 'Droit:', rightConnected && rightHasData);
+
+  if (leftConnected && rightConnected && leftHasData && rightHasData) {
+    console.log('[Prêt] Les deux capteurs fonctionnent - ARRÊT du scan');
+    
+    if (isScanning) {
+      isScanning = false;
+      try {
+        noble.stopScanning();
+        console.log('[Prêt] Scan arrêté avec succès');
+      } catch (error) {
+        console.error('[Prêt] Erreur arrêt scan:', error);
+      }
+    }
+    
+    updateScanButton('Capteurs connectés', '#3498db', false);
+    updateStatus('Deux capteurs connectés et fonctionnels');
+  }
+}
+
+// ========================================
+// MISE À JOUR INTERFACE
+// ========================================
+function updateScanButton(text, color, enabled) {
+  const button = /** @type {HTMLButtonElement} */ (document.getElementById('scanButton'));
+  if (button) {
+    button.textContent = text;
+    button.style.backgroundColor = color;
+    button.disabled = !enabled;
+    button.style.cursor = enabled ? 'pointer' : 'not-allowed';
+  }
+}
+
+function updateStatus(message) {
+  const status = document.getElementById('connectionStatus');
+  if (status) {
+    status.textContent = message;
+  }
+}
+
+function updateDeviceDisplay(position, info) {
+  const display = document.querySelector(`[data-position="${position}"]`);
+  if (!display) return;
+  
+  const indicator = display.querySelector('.status-indicator');
+  indicator.className = `status-indicator ${info.connected ? 'status-connected' : 'status-disconnected'}`;
+  
+  display.querySelector('.state').textContent = `État: ${info.connected ? 'connecté' : 'déconnecté'}`;
+  
+  if (info.connected) {
+    if (info.address) display.querySelector('.address').textContent = `Adresse: ${info.address}`;
+    if (info.rssi !== undefined) {
+      const signalPercent = Math.max(0, Math.min(100, 100 + info.rssi));
+      display.querySelector('.rssi').textContent = `Signal: ${info.rssi}dBm (${signalPercent}%)`;
+    }
+  } else {
+    display.querySelector('.address').textContent = 'Adresse: --';
+    display.querySelector('.rssi').textContent = 'Signal: --';
+    display.querySelector('.battery').textContent = 'Batterie: --%';
+    display.querySelector('.roll').textContent = 'Roll (X): --°';
+    display.querySelector('.pitch').textContent = 'Pitch (Y): --°';
+    display.querySelector('.yaw').textContent = 'Yaw (Z): --°';
+  }
+}
+
+function updateAngles(position, angles) {
+  const display = document.querySelector(`[data-position="${position}"]`);
+  if (!display) return;
+  
+  display.querySelector('.roll').textContent = `Roll (X): ${angles.x.toFixed(1)}°`;
+  display.querySelector('.pitch').textContent = `Pitch (Y): ${angles.y.toFixed(1)}°`;
+  display.querySelector('.yaw').textContent = `Yaw (Z): ${angles.z.toFixed(1)}°`;
+}
+
+function updateBattery(position, percentage) {
+  const display = document.querySelector(`[data-position="${position}"]`);
+  if (!display) return;
+  
+  display.querySelector('.battery').textContent = `Batterie: ${percentage}%`;
+}
+
+// ========================================
+// NOBLE CONFIGURATION
+// ========================================
+function setupNoble() {
+  console.log('[Noble] Configuration...');
+  
+  noble.on('stateChange', (state) => {
+    console.log('[Noble] État:', state);
+    
+    if (state === 'poweredOff' && (isScanning || connectedDevices.size > 0)) {
+      console.log('[Noble] Bluetooth désactivé');
+      isScanning = false;
+      updateStatus('Bluetooth désactivé');
+      updateScanButton('Bluetooth désactivé', '#e74c3c', false);
+    }
+  });
+  
+  noble.on('discover', (peripheral) => {
+    const deviceName = peripheral.advertisement.localName || '';
+    
+    if (!deviceName.includes('WT901BLE')) return;
+    
+    const sensorInfo = getSensorInfo(peripheral.address);
+    if (!sensorInfo) return;
+    
+    handleDiscovery(peripheral);
+  });
+  
+  console.log('[Noble] État initial:', noble.state);
+}
+
+// ========================================
+// INITIALISATION
+// ========================================
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('[App] Initialisation...');
+  
+  setupTabs();
+  setupSensorInterface();
+  setupNoble();
+  
+  console.log('[App] Prêt');
+  console.log('[Config] Capteurs:', SENSOR_CONFIG);
+});
+
+// ========================================
+// NETTOYAGE À LA FERMETURE
+// ========================================
+if (window.require) {
+  const { ipcRenderer } = window.require('electron');
+  
+  ipcRenderer.on('app-closing', () => {
+    console.log('[App] Fermeture - Nettoyage...');
+    
+    if (isScanning) {
+      try {
+        noble.stopScanning();
+      } catch (error) {
+        console.error('[Cleanup] Erreur arrêt scan:', error);
+      }
+    }
+    
+    peripheralRefs.forEach((peripheral, address) => {
+      try {
+        peripheral.disconnect();
+      } catch (error) {
+        console.error('[Cleanup] Erreur déconnexion:', error);
+      }
+    });
+    
+    setTimeout(() => {
+      ipcRenderer.send('cleanup-complete');
+    }, 200);
+  });
+}
