@@ -1,19 +1,27 @@
 ﻿// src/adapters/primary/ui/app.js
-// PHASE 1 : Version simplifiée utilisant NobleBluetoothAdapter
+// INTÉGRATION : NobleBluetoothAdapter + Système Audio Granulaire
 
-console.log('Heart of Glass - Version avec NobleBluetoothAdapter');
+console.log('Heart of Glass - Version avec NobleBluetoothAdapter + Audio Granulaire');
 
-// Import du nouvel adapter - utiliser chemin absolu depuis la racine du projet
+// ========================================
+// IMPORTS
+// ========================================
 const path = require('path');
 
 // Chemin absolu depuis la racine du projet
 const projectRoot = process.cwd();
-const adapterPath = path.join(projectRoot, 'src', 'adapters', 'secondary', 'sensors', 'bluetooth', 'NobleBluetoothAdapter.js');
 
+// Import Bluetooth
+const adapterPath = path.join(projectRoot, 'src', 'adapters', 'secondary', 'sensors', 'bluetooth', 'NobleBluetoothAdapter.js');
 console.log('[App] Project root:', projectRoot);
 console.log('[App] Adapter path:', adapterPath);
-
 const NobleBluetoothAdapter = require(adapterPath);
+
+// Import Audio - Système granulaire
+const audioAdapterPath = path.join(projectRoot, 'src', 'adapters', 'secondary', 'audio', 'granular', 'GranularSynthesisAdapter.js');
+const AudioParameters = require(path.join(projectRoot, 'src', 'core', 'domain', 'valueObjects', 'AudioParameters.js'));
+const AudioState = require(path.join(projectRoot, 'src', 'core', 'domain', 'valueObjects', 'AudioState.js'));
+const GranularSynthesisAdapter = require(audioAdapterPath);
 
 // ========================================
 // CONFIGURATION
@@ -25,9 +33,23 @@ const SENSOR_CONFIG = {
   rightColor: 'green'
 };
 
+// Configuration audio par défaut - MODE VINYLE
+const AUDIO_CONFIG = {
+  defaultGrainSize: 60,       // ms - Grains courts pour lecture fluide
+  defaultOverlap: 60,         // % - Chevauchement modéré
+  defaultWindow: 'hann',
+  defaultVolume: 0.8,
+  minGrainSize: 10,
+  maxGrainSize: 500,
+  minOverlap: 0,
+  maxOverlap: 95
+};
+
 // ========================================
 // ÉTAT DE L'APPLICATION
 // ========================================
+
+// État Bluetooth (existant)
 const connectedDevices = new Set();
 const sensorsWithData = new Set();
 const peripheralRefs = new Map();
@@ -36,8 +58,61 @@ const calibrationOffsets = new Map();
 let bluetoothAdapter = null;
 let scanTimeout = null;
 
+// État Audio (nouveau)
+let audioSystem = null;
+let audioState = AudioState.createInitial();
+let audioParameters = new AudioParameters(
+  AUDIO_CONFIG.defaultGrainSize,
+  AUDIO_CONFIG.defaultOverlap,
+  AUDIO_CONFIG.defaultWindow
+);
+
+let timelineUpdateInterval = null;
+let currentAudioFile = null;
+let imuToAudioEnabled = false; // Connexion capteurs → audio
+
+// Lissage de la vitesse de lecture
+let smoothedPlaybackRate = 1.0;
+const SMOOTHING_FACTOR = 0.3; // 0.1 = très lisse, 0.5 = réactif
+
+// Tracking des angles pour calcul de vitesse angulaire
+let lastAngles = {
+  left: { x: 0, y: 0, z: 0, timestamp: 0 },
+  right: { x: 0, y: 0, z: 0, timestamp: 0 }
+};
+
+// Configuration du mapping IMU → Audio
+const IMU_MAPPING = {
+  velocitySensitivity: 2.0,    // Multiplicateur de sensibilité vitesse
+  volumeSensitivity: 1.0,      // Multiplicateur de sensibilité volume
+  minPlaybackRate: 0.1,        // Vitesse min (10%)
+  maxPlaybackRate: 3.0,        // Vitesse max (300%)
+  volumeAngleRange: 45,        // Plage d'angle pour volume (±45°)
+  deadZone: 2.0                // Zone morte pour éviter micro-mouvements (degrés/sec)
+};
+
+// Références UI Audio
+let audioUI = {
+  fileInput: null,
+  fileName: null,
+  playPauseButton: null,
+  stopButton: null,
+  timeline: null,
+  timelineSlider: null,
+  currentTime: null,
+  duration: null,
+  volumeSlider: null,
+  grainSizeSlider: null,
+  grainSizeValue: null,
+  overlapSlider: null,
+  overlapValue: null,
+  windowSelect: null,
+  imuToggle: null,
+  imuSensitivity: null
+};
+
 // ========================================
-// FONCTIONS UTILITAIRES
+// FONCTIONS UTILITAIRES (Bluetooth)
 // ========================================
 function getSensorInfo(address) {
   const addrLower = address.toLowerCase();
@@ -57,7 +132,7 @@ function normalizeAngle(angle) {
 }
 
 // ========================================
-// INTERFACE UTILISATEUR
+// INTERFACE UTILISATEUR - ONGLETS
 // ========================================
 function setupTabs() {
   const tabButtons = document.querySelectorAll('.tab-button');
@@ -76,6 +151,9 @@ function setupTabs() {
   });
 }
 
+// ========================================
+// INTERFACE UTILISATEUR - CAPTEURS
+// ========================================
 function setupSensorInterface() {
   const sensorContainer = document.getElementById('sensorContainer');
   if (!sensorContainer) return;
@@ -173,10 +251,176 @@ function updateAngles(position, angles) {
   display.querySelector('.roll').textContent = `Roll (X): ${angles.x.toFixed(1)}°`;
   display.querySelector('.pitch').textContent = `Pitch (Y): ${angles.y.toFixed(1)}°`;
   display.querySelector('.yaw').textContent = `Yaw (Z): ${angles.z.toFixed(1)}°`;
+  
+  // 🎵 DEBUG : Vérifier l'état du système
+  if (position === 'DROIT') {
+    console.log(`[IMU] DROIT - Y: ${angles.y.toFixed(1)}° | IMU enabled: ${imuToAudioEnabled} | Playing: ${audioState.isPlaying}`);
+  }
+  
+  // 🎵 NOUVEAU : Tracking et mapping IMU → Audio (mode vinyle)
+  if (imuToAudioEnabled && audioSystem && audioState.isPlaying) {
+    const now = Date.now();
+    const side = position === 'GAUCHE' ? 'left' : 'right';
+    
+    // Stocker les angles et timestamp
+    const lastAngle = lastAngles[side];
+    const deltaTime = (now - lastAngle.timestamp) / 1000; // secondes
+    
+    if (deltaTime > 0) {
+      // Calculer la vitesse angulaire (degrés/seconde) pour Pitch (Y)
+      const angularVelocity = (angles.y - lastAngle.y) / deltaTime;
+      
+      // DEBUG
+      if (position === 'DROIT' && Math.abs(angularVelocity) > 1) {
+        console.log(`[IMU→Audio] Vitesse angulaire: ${angularVelocity.toFixed(1)}°/s`);
+      }
+      
+      // Appliquer le mapping
+      applyIMUToAudio(position, angles, angularVelocity);
+    }
+    
+    // Mettre à jour le dernier état
+    lastAngles[side] = {
+      x: angles.x,
+      y: angles.y,
+      z: angles.z,
+      timestamp: now
+    };
+  }
 }
 
 // ========================================
-// GESTION BLUETOOTH
+// INTERFACE UTILISATEUR - AUDIO
+// ========================================
+function setupAudioInterface() {
+  console.log('[Audio] Configuration interface audio...');
+  
+  // Récupérer les références aux éléments UI RÉELS
+  audioUI.fileInput = document.getElementById('audioFile');
+  audioUI.fileName = null; // Pas de span pour le nom dans le HTML
+  audioUI.playPauseButton = document.getElementById('playPauseButton');
+  audioUI.stopButton = null; // Pas de bouton stop dans le HTML
+  
+  // Timeline custom
+  audioUI.timeline = document.getElementById('timelineContainer');
+  audioUI.timelineProgress = document.getElementById('timelineProgress');
+  audioUI.timelineHandle = document.getElementById('timelineHandle');
+  audioUI.positionDisplay = document.getElementById('positionDisplay');
+  
+  // Affichages d'état
+  audioUI.audioStatus = document.getElementById('audioStatus');
+  audioUI.speedDisplay = document.getElementById('speedDisplay');
+  audioUI.volumeDisplay = document.getElementById('volumeDisplay');
+  
+  // Paramètres granulaires - IDs RÉELS
+  audioUI.grainSizeInput = document.getElementById('grainSizeInput');
+  audioUI.overlapInput = document.getElementById('overlapInput');
+  audioUI.windowSelect = document.getElementById('windowTypeSelect');
+  
+  // Contrôle IMU
+  audioUI.imuToggle = document.getElementById('imuControl');
+  audioUI.imuSensitivity = document.getElementById('sensitivitySlider');
+  
+  // Vérifier que tous les éléments existent
+  if (!audioUI.fileInput || !audioUI.playPauseButton) {
+    console.error('[Audio] Éléments UI audio manquants');
+    return;
+  }
+  
+  // Event listeners
+  audioUI.fileInput.addEventListener('change', handleFileSelect);
+  audioUI.playPauseButton.addEventListener('click', togglePlayPause);
+  
+  // Timeline custom - clic pour seek
+  if (audioUI.timeline) {
+    audioUI.timeline.addEventListener('click', handleTimelineClick);
+  }
+  
+  // Paramètres granulaires
+  if (audioUI.grainSizeInput) {
+    audioUI.grainSizeInput.addEventListener('input', handleGrainSizeChange);
+  }
+  if (audioUI.overlapInput) {
+    audioUI.overlapInput.addEventListener('input', handleOverlapChange);
+  }
+  if (audioUI.windowSelect) {
+    audioUI.windowSelect.addEventListener('change', handleWindowChange);
+  }
+  
+  // Contrôle IMU
+  if (audioUI.imuToggle) {
+    audioUI.imuToggle.addEventListener('change', handleIMUToggle);
+  }
+  
+  // État initial
+  updateAudioUI();
+  
+  console.log('[Audio] ✓ Interface audio configurée');
+}
+
+function updateAudioUI() {
+  // Bouton Play/Pause - Icônes séparées
+  if (audioUI.playPauseButton) {
+    const playIcon = audioUI.playPauseButton.querySelector('.play-icon');
+    const pauseIcon = audioUI.playPauseButton.querySelector('.pause-icon');
+    
+    if (!currentAudioFile) {
+      audioUI.playPauseButton.disabled = true;
+      if (playIcon) playIcon.style.display = 'inline';
+      if (pauseIcon) pauseIcon.style.display = 'none';
+    } else {
+      audioUI.playPauseButton.disabled = false;
+      if (audioState.isPlaying) {
+        if (playIcon) playIcon.style.display = 'none';
+        if (pauseIcon) pauseIcon.style.display = 'inline';
+      } else {
+        if (playIcon) playIcon.style.display = 'inline';
+        if (pauseIcon) pauseIcon.style.display = 'none';
+      }
+    }
+  }
+  
+  // Timeline custom - mise à jour de la barre de progression
+  if (audioUI.timelineProgress && audioState.duration > 0) {
+    const percent = (audioState.currentPosition / audioState.duration) * 100;
+    audioUI.timelineProgress.style.width = `${percent}%`;
+    
+    if (audioUI.timelineHandle) {
+      audioUI.timelineHandle.style.left = `${percent}%`;
+    }
+  }
+  
+  // Position display "00:00 / 00:00"
+  if (audioUI.positionDisplay) {
+    const current = formatTime(audioState.currentPosition);
+    const total = formatTime(audioState.duration);
+    audioUI.positionDisplay.textContent = `${current} / ${total}`;
+  }
+  
+  // État audio
+  if (audioUI.audioStatus) {
+    audioUI.audioStatus.textContent = `État: ${audioState.isPlaying ? 'Lecture' : 'Arrêté'}`;
+  }
+  
+  // Affichage vitesse (sera mis à jour par IMU)
+  if (audioUI.speedDisplay) {
+    // La vitesse sera affichée par le contrôle IMU
+  }
+  
+  // Affichage volume
+  if (audioUI.volumeDisplay) {
+    audioUI.volumeDisplay.textContent = `Volume: ${Math.round(audioState.volume * 100)}%`;
+  }
+}
+
+function formatTime(seconds) {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+// ========================================
+// GESTION BLUETOOTH (INCHANGÉ)
 // ========================================
 async function initializeBluetooth() {
   console.log('[App] Initialisation Bluetooth...');
@@ -229,103 +473,78 @@ async function handleDiscovery(peripheral) {
     return;
   }
   
-  console.log('[App] Découverte:', sensorInfo.position, '-', peripheral.rssi, 'dBm');
+  console.log(`[App] 📡 Capteur ${sensorInfo.position} trouvé`);
+  console.log(`[App] Adresse: ${address}`);
+  console.log(`[App] Signal: ${peripheral.rssi}dBm`);
   
-  if (connectedDevices.has(address)) {
-    console.log('[App] Déjà connecté, ignoré');
-    return;
-  }
-  
-  if (!bluetoothAdapter.getScanStatus().isScanning) {
-    console.log('[App] Scan inactif, ignoré');
-    return;
-  }
-  
-  // Tenter la connexion
-  await connectSensor(peripheral, sensorInfo);
-}
-
-async function connectSensor(peripheral, sensorInfo) {
-  const address = peripheral.address.toLowerCase();
-  const { position } = sensorInfo;
+  // Afficher découverte
+  updateDeviceDisplay(sensorInfo.position, {
+    connected: false,
+    address: address,
+    rssi: peripheral.rssi
+  });
   
   try {
-    console.log(`[App] Connexion ${position}...`);
+    console.log(`[App] Connexion à ${sensorInfo.position}...`);
+    updateStatus(`Connexion au capteur ${sensorInfo.position}...`);
     
-    // Connecter via l'adapter
-    const result = await bluetoothAdapter.connectSensor(peripheral, (disconnectedAddress) => {
-      handleDisconnection(disconnectedAddress);
+    // Utiliser connectSensor avec callback de déconnexion
+    await bluetoothAdapter.connectSensor(peripheral, () => {
+      handleDisconnection(address, sensorInfo.position);
     });
     
-    console.log('[App] ✓ Connecté:', position);
-    
-    connectedDevices.add(address);
     peripheralRefs.set(address, peripheral);
-    
-    updateDeviceDisplay(position, { 
-      connected: true, 
-      address: result.address,
-      rssi: result.rssi 
-    });
-    
-    // Configurer notifications avec validation
-    try {
-      await bluetoothAdapter.setupNotifications(peripheral, (data, addr) => {
-        handleSensorData(data, addr, position, sensorInfo.color);
-      });
-      
-      console.log('[App] ✓ Notifications configurées:', position);
-      
-    } catch (error) {
-      console.error('[App] ✗ Erreur notifications:', error);
-      
-      // Si moins de 6 caractéristiques, déconnecter et réessayer
-      if (error.message.includes('incomplète')) {
-        console.log('[App] Reconnexion nécessaire pour', position);
-        await bluetoothAdapter.disconnectSensor(address);
-        // Le scan continue, il va redécouvrir automatiquement
-      }
-    }
+    await handleConnection(address, sensorInfo.position, sensorInfo.color, peripheral);
     
   } catch (error) {
-    console.error('[App] ✗ Erreur connexion:', error);
+    console.error(`[App] Erreur connexion ${sensorInfo.position}:`, error);
+    updateStatus(`Erreur: ${error.message}`);
   }
+}
+
+async function handleConnection(address, position, color, peripheral) {
+  console.log(`[App] ✓ ${position} connecté`);
+  
+  connectedDevices.add(address);
+  
+  updateDeviceDisplay(position, {
+    connected: true,
+    address: address
+  });
+  
+  // Configurer les notifications avec callback de données
+  await bluetoothAdapter.setupNotifications(peripheral, (data, deviceAddress) => {
+    if (deviceAddress === address) {
+      handleSensorData(data, address, position, color);
+    }
+  });
   
   checkIfReady();
 }
 
-function handleDisconnection(address) {
-  const sensorInfo = getSensorInfo(address);
-  if (!sensorInfo) return;
-  
-  const { position } = sensorInfo;
-  
-  console.log('[App] Déconnexion:', position);
+function handleDisconnection(address, position) {
+  console.log(`[App] Déconnexion ${position}`);
   
   connectedDevices.delete(address);
   sensorsWithData.delete(address);
   calibrationOffsets.delete(address);
   peripheralRefs.delete(address);
   
-  updateDeviceDisplay(position, { connected: false });
+  updateDeviceDisplay(position, {
+    connected: false
+  });
   
-  // Vérifier l'état global et mettre à jour le bouton
-  const leftConnected = connectedDevices.has(SENSOR_CONFIG.leftAddress.toLowerCase());
-  const rightConnected = connectedDevices.has(SENSOR_CONFIG.rightAddress.toLowerCase());
-  
-  // Si tous déconnectés
+  // Si aucun capteur n'est connecté
   if (connectedDevices.size === 0) {
-    console.log('[App] Tous capteurs déconnectés');
+    console.log('[App] Aucun capteur connecté');
     
-    if (bluetoothAdapter.getScanStatus().isScanning) {
-      stopScan();
-    } else {
+    if (!bluetoothAdapter.getScanStatus().isScanning) {
       updateScanButton('Rechercher les capteurs', '#4CAF50', true);
-      updateStatus('Capteurs déconnectés - Cliquez pour rechercher');
+      updateStatus('Aucun capteur connecté');
     }
   }
-  // Si un seul déconnecté
-  else if (leftConnected || rightConnected) {
+  // Si un capteur reste connecté
+  else {
     console.log('[App] Un capteur reste connecté');
     
     if (!bluetoothAdapter.getScanStatus().isScanning) {
@@ -410,7 +629,7 @@ function checkIfReady() {
 }
 
 // ========================================
-// CONTRÔLE DU SCAN
+// CONTRÔLE DU SCAN (INCHANGÉ)
 // ========================================
 async function toggleScan() {
   const status = bluetoothAdapter.getScanStatus();
@@ -515,22 +734,330 @@ async function stopScan() {
 }
 
 // ========================================
+// SYSTÈME AUDIO - NOUVEAU
+// ========================================
+
+async function initializeAudioSystem() {
+  console.log('[Audio] Initialisation système audio...');
+  
+  try {
+    // Créer l'adapter audio
+    audioSystem = new GranularSynthesisAdapter();
+    
+    // Initialiser (sans paramètres)
+    await audioSystem.initialize();
+    
+    // Configurer les paramètres par défaut
+    audioSystem.setGranularParams({
+      grainSize: audioParameters.grainSize,
+      overlap: audioParameters.overlap,
+      windowType: audioParameters.windowType
+    });
+    
+    audioSystem.setVolume(audioState.volume);
+    
+    console.log('[Audio] ✓ Système audio initialisé');
+    return true;
+    
+  } catch (error) {
+    console.error('[Audio] Erreur initialisation:', error);
+    return false;
+  }
+}
+
+async function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  console.log('[Audio] Fichier sélectionné:', file.name);
+  
+  try {
+    // Arrêter la lecture en cours si nécessaire
+    if (audioState.isPlaying) {
+      await stopAudio();
+    }
+    
+    // Charger le fichier et décoder
+    const fileBuffer = await file.arrayBuffer();
+    const audioContext = audioSystem.audioContext;
+    const audioBuffer = await audioContext.decodeAudioData(fileBuffer);
+    
+    // Charger directement le buffer dans l'audioSystem
+    // (bypasser loadAudioFile qui attend un chemin)
+    audioSystem.audioBuffer = audioBuffer;
+    audioSystem.currentPosition = 0;
+    
+    // Mettre à jour l'état
+    currentAudioFile = file;
+    audioState = audioState.with({
+      duration: audioBuffer.duration,
+      currentPosition: 0
+    });
+    
+    console.log('[Audio] ✓ Fichier chargé:', audioBuffer.duration.toFixed(2), 'secondes');
+    
+    // Mettre à jour l'interface
+    updateAudioUI();
+    
+  } catch (error) {
+    console.error('[Audio] Erreur chargement fichier:', error);
+    alert('Erreur lors du chargement du fichier audio');
+  }
+}
+
+async function togglePlayPause() {
+  if (!currentAudioFile || !audioSystem) return;
+  
+  try {
+    if (audioState.isPlaying) {
+      // Stop (pas de pause dans GranularSynthesisAdapter)
+      audioSystem.stopPlayback();
+      audioState = audioState.with({ isPlaying: false });
+      stopTimelineUpdates();
+      console.log('[Audio] ⏸ Arrêt');
+    } else {
+      // Play
+      audioSystem.startPlayback();
+      // IMPORTANT : Mettre à jour l'état APRÈS startPlayback
+      audioState = audioState.with({ isPlaying: true });
+      startTimelineUpdates();
+      console.log('[Audio] ▶ Lecture - État: ', audioState.isPlaying);
+    }
+    
+    // Mettre à jour l'UI immédiatement
+    updateAudioUI();
+    
+  } catch (error) {
+    console.error('[Audio] Erreur play/pause:', error);
+  }
+}
+
+async function stopAudio() {
+  if (!audioSystem) return;
+  
+  try {
+    audioSystem.stopPlayback();
+    audioState = audioState.with({
+      isPlaying: false,
+      currentPosition: 0
+    });
+    
+    stopTimelineUpdates();
+    updateAudioUI();
+    
+    console.log('[Audio] ⏹ Stop');
+    
+  } catch (error) {
+    console.error('[Audio] Erreur stop:', error);
+  }
+}
+
+function handleTimelineClick(event) {
+  if (!currentAudioFile || !audioSystem) return;
+  
+  // Calculer la position cliquée en pourcentage
+  const rect = audioUI.timeline.getBoundingClientRect();
+  const clickX = event.clientX - rect.left;
+  const percent = (clickX / rect.width) * 100;
+  const newPosition = (percent / 100) * audioState.duration;
+  
+  audioSystem.setPlaybackPosition(newPosition);
+  audioState = audioState.with({ currentPosition: newPosition });
+  
+  updateAudioUI();
+  console.log(`[Audio] Seek to ${newPosition.toFixed(2)}s (${percent.toFixed(1)}%)`);
+}
+
+function handleGrainSizeChange(event) {
+  const grainSize = parseInt(event.target.value);
+  
+  try {
+    audioParameters = audioParameters.with({ grainSize });
+    
+    if (audioSystem) {
+      audioSystem.setGranularParams({ grainSize });
+    }
+    
+    console.log('[Audio] Grain size:', grainSize, 'ms');
+    
+  } catch (error) {
+    console.error('[Audio] Erreur grain size:', error);
+  }
+}
+
+function handleOverlapChange(event) {
+  const overlap = parseInt(event.target.value);
+  
+  try {
+    audioParameters = audioParameters.with({ overlap });
+    
+    if (audioSystem) {
+      audioSystem.setGranularParams({ overlap });
+    }
+    
+    console.log('[Audio] Overlap:', overlap, '%');
+    
+  } catch (error) {
+    console.error('[Audio] Erreur overlap:', error);
+  }
+}
+
+function handleWindowChange(event) {
+  const windowType = event.target.value;
+  
+  try {
+    audioParameters = audioParameters.with({ windowType });
+    
+    if (audioSystem) {
+      audioSystem.setGranularParams({ windowType });
+    }
+    
+    console.log('[Audio] Window type:', windowType);
+    
+  } catch (error) {
+    console.error('[Audio] Erreur window type:', error);
+  }
+}
+
+function handleIMUToggle(event) {
+  imuToAudioEnabled = event.target.checked;
+  
+  // Réinitialiser les timestamps pour éviter des valeurs aberrantes au démarrage
+  if (imuToAudioEnabled) {
+    const now = Date.now();
+    lastAngles.left.timestamp = now;
+    lastAngles.right.timestamp = now;
+    console.log('[Audio] ✅ Contrôle IMU vinyle ACTIVÉ');
+    console.log('[Audio] 🎚️ Main DROITE = Vitesse (rotation Pitch Y)');
+    console.log('[Audio] 🔊 Main GAUCHE = Volume (angle Pitch Y)');
+    console.log('[Audio] ⚠️ Note: Le checkbox "Lecture en boucle" active le contrôle IMU temporairement');
+  } else {
+    // Réinitialiser à vitesse normale quand désactivé
+    if (audioSystem) {
+      audioSystem.setPlaybackRate(1.0, 1);
+    }
+    console.log('[Audio] ❌ Contrôle IMU désactivé');
+  }
+}
+
+// Mise à jour de la timeline en temps réel
+function startTimelineUpdates() {
+  stopTimelineUpdates(); // S'assurer qu'aucun interval n'existe
+  
+  timelineUpdateInterval = setInterval(() => {
+    if (audioSystem && audioState.isPlaying) {
+      const currentPos = audioSystem.getPlaybackPosition();
+      audioState = audioState.with({ currentPosition: currentPos });
+      updateAudioUI();
+      
+      // Arrêter si fin du fichier
+      if (currentPos >= audioState.duration) {
+        stopAudio();
+      }
+    }
+  }, 100); // Mise à jour toutes les 100ms
+}
+
+function stopTimelineUpdates() {
+  if (timelineUpdateInterval) {
+    clearInterval(timelineUpdateInterval);
+    timelineUpdateInterval = null;
+  }
+}
+
+function applyIMUToAudio(position, angles, angularVelocity) {
+  if (!audioUI.imuSensitivity || !audioSystem) return;
+  
+  const sensitivity = parseFloat(audioUI.imuSensitivity.value);
+  
+  // ============================================
+  // MAIN DROITE : Contrôle de VITESSE (type vinyle)
+  // ============================================
+  if (position === 'DROIT') {
+    const angle = angles.y; // -180° à +180°
+    
+    // Mapper l'angle sur vitesse + direction
+    // +90° = 2x avant | 0° = 1x avant | -90° = 2x arrière
+    
+    let playbackRate;
+    let direction;
+    
+    if (angle >= 0) {
+      // 0° à +90° : Lecture AVANT (direction = 1)
+      // 0° = 1.0x, +90° = 2.0x (ou plus selon sensitivity)
+      const normalizedAngle = Math.min(angle, 90) / 90; // 0.0 à 1.0
+      playbackRate = 1.0 + (normalizedAngle * sensitivity);
+      direction = 1;
+    } else {
+      // 0° à -90° : Lecture ARRIÈRE (direction = -1)
+      // 0° = 1.0x, -90° = 2.0x arrière
+      const normalizedAngle = Math.min(Math.abs(angle), 90) / 90; // 0.0 à 1.0
+      playbackRate = 1.0 + (normalizedAngle * sensitivity);
+      direction = -1;
+    }
+    
+    // Clamper entre 0.5x et 3.0x
+    playbackRate = Math.max(0.5, Math.min(3.0, playbackRate));
+    
+    // LISSAGE pour éviter les sauts brusques
+    smoothedPlaybackRate = smoothedPlaybackRate + (playbackRate - smoothedPlaybackRate) * SMOOTHING_FACTOR;
+    
+    // Appliquer avec la direction
+    audioSystem.setPlaybackRate(smoothedPlaybackRate, direction);
+    
+    // UI
+    if (audioUI.speedDisplay) {
+      const directionLabel = direction === 1 ? '→' : '←';
+      audioUI.speedDisplay.textContent = `Vitesse: ${smoothedPlaybackRate.toFixed(2)}x ${directionLabel}`;
+    }
+  }
+  
+  // ============================================
+  // MAIN GAUCHE : Contrôle de VOLUME
+  // ============================================
+  else if (position === 'GAUCHE') {
+    const normalizedAngle = Math.max(-45, Math.min(45, angles.y));
+    const volumeRatio = (normalizedAngle + 45) / 90;
+    const volume = volumeRatio * IMU_MAPPING.volumeSensitivity;
+    
+    audioSystem.setVolume(volume);
+    audioState = audioState.with({ volume });
+    
+    if (audioUI.volumeDisplay) {
+      audioUI.volumeDisplay.textContent = `Volume: ${Math.round(volume * 100)}%`;
+    }
+  }
+}
+
+// ========================================
 // INITIALISATION
 // ========================================
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('[App] Initialisation application...');
   
+  // Interface
   setupTabs();
   setupSensorInterface();
+  setupAudioInterface();
   
-  const success = await initializeBluetooth();
+  // Systèmes
+  const bluetoothOk = await initializeBluetooth();
+  const audioOk = await initializeAudioSystem();
   
-  if (success) {
-    console.log('[App] ✓ Application prête');
+  if (bluetoothOk) {
+    console.log('[App] ✓ Bluetooth prêt');
     updateStatus('Cliquez sur "Rechercher les capteurs" pour commencer');
   } else {
-    console.error('[App] ✗ Initialisation échouée');
+    console.error('[App] ✗ Bluetooth échoué');
   }
+  
+  if (audioOk) {
+    console.log('[Audio] ✓ Audio prêt');
+  } else {
+    console.error('[Audio] ✗ Audio échoué');
+  }
+  
+  console.log('[App] ✓ Application prête');
 });
 
 // ========================================
@@ -542,12 +1069,20 @@ if (window.require) {
   ipcRenderer.on('app-closing', async () => {
     console.log('[App] Fermeture - Nettoyage...');
     
+    // Nettoyage Bluetooth
     if (scanTimeout) {
       clearTimeout(scanTimeout);
     }
     
     if (bluetoothAdapter) {
       await bluetoothAdapter.cleanup();
+    }
+    
+    // Nettoyage Audio
+    stopTimelineUpdates();
+    
+    if (audioSystem) {
+      audioSystem.dispose();
     }
     
     setTimeout(() => {
