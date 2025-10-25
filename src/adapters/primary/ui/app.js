@@ -3,14 +3,32 @@
 
 console.log('Heart of Glass - Version avec NobleBluetoothAdapter + Audio Granulaire + MP3 Recording');
 
+// ========================================
+// MODE HYBRIDE : Basculement IPC / Direct
+// ========================================
+const USE_IPC_MODE = false; // false = mode direct (actuel), true = mode IPC (nouveau)
+console.log(`[App] Mode: ${USE_IPC_MODE ? 'IPC (Architecture Hexagonale)' : 'DIRECT (Legacy)'}`);
+
 const path = require('path');
 
 const projectRoot = process.cwd();
 
-const adapterPath = path.join(projectRoot, 'src', 'adapters', 'secondary', 'sensors', 'bluetooth', 'NobleBluetoothAdapter.js');
-console.log('[App] Project root:', projectRoot);
-console.log('[App] Adapter path:', adapterPath);
-const NobleBluetoothAdapter = require(adapterPath);
+// Import conditionnel selon le mode
+let bluetoothAdapterClass;
+
+if (USE_IPC_MODE) {
+  // Mode IPC : Utiliser le client IPC
+  const SensorIPCClient = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'services', 'SensorIPCClient.js'));
+  bluetoothAdapterClass = SensorIPCClient;
+  console.log('[App] Mode IPC : SensorIPCClient chargé');
+} else {
+  // Mode Direct : Utiliser NobleBluetoothAdapter
+  const adapterPath = path.join(projectRoot, 'src', 'adapters', 'secondary', 'sensors', 'bluetooth', 'NobleBluetoothAdapter.js');
+  bluetoothAdapterClass = require(adapterPath);
+  console.log('[App] Mode DIRECT : NobleBluetoothAdapter chargé');
+  console.log('[App] Project root:', projectRoot);
+  console.log('[App] Adapter path:', adapterPath);
+}
 
 const audioAdapterPath = path.join(projectRoot, 'src', 'adapters', 'secondary', 'audio', 'granular', 'GranularSynthesisAdapter.js');
 const AudioParameters = require(path.join(projectRoot, 'src', 'core', 'domain', 'valueObjects', 'AudioParameters.js'));
@@ -185,7 +203,19 @@ function updateScanButton(text, color, enabled) {
   if (button) {
     button.textContent = text;
     button.style.backgroundColor = color;
-    button.disabled = !enabled;
+
+    // If the element is an actual HTMLButtonElement we can set disabled directly,
+    // otherwise use aria-disabled for generic HTMLElements to reflect disabled state.
+    if (button instanceof HTMLButtonElement) {
+      button.disabled = !enabled;
+    } else {
+      if (enabled) {
+        button.removeAttribute('aria-disabled');
+      } else {
+        button.setAttribute('aria-disabled', 'true');
+      }
+    }
+
     button.style.cursor = enabled ? 'pointer' : 'not-allowed';
   }
 }
@@ -384,10 +414,11 @@ function formatTime(seconds) {
 }
 
 async function initializeBluetooth() {
-  console.log('[App] Initialisation Bluetooth...');
+  const modeText = USE_IPC_MODE ? 'IPC' : 'DIRECT';
+  console.log('[App] Initialisation Bluetooth (mode ' + modeText + ')...');
   
   try {
-    bluetoothAdapter = new NobleBluetoothAdapter();
+    bluetoothAdapter = new bluetoothAdapterClass();
     
     const availability = await bluetoothAdapter.checkBluetoothAvailability();
     
