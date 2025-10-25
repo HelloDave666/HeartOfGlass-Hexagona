@@ -53,6 +53,7 @@
     }
   },
   "dependencies": {
-    "@abandonware/noble": "^1.9.2-17"
+    "@abandonware/noble": "^1.9.2-17",
+    "lamejs": "^1.2.1"
   }
 }

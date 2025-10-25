@@ -18,12 +18,13 @@ class GranularSynthesisAdapter extends IAudioService {
     this.playbackDirection = 1;
     this.volume = 0.8;
     this.grainParams = {
-      grainSize: 350,
-      overlap: 92,
+      grainSize: 60,
+      overlap: 50,
       windowType: 'hann'
     };
     this.grainScheduler = null;
     this.lastGrainTime = 0;
+    this.outputNode = null;
   }
 
   async initialize() {
@@ -122,25 +123,21 @@ class GranularSynthesisAdapter extends IAudioService {
     const overlapFactor = this.grainParams.overlap / 100;
     const grainInterval = grainSizeSec * (1 - overlapFactor);
     
-    // Pour la lecture arrière, on garde le rate positif mais on lit à partir de positions inversées
     const effectiveRate = Math.abs(this.playbackRate);
     
     this.grainPlayer.playGrain(
       this.audioBuffer,
       this.currentPosition,
       grainSizeSec,
-      effectiveRate, // Toujours positif pour que le grain soit audible
+      effectiveRate,
       this.volume,
       this.grainParams.windowType,
       this.processingChain.input
     );
     
-    // L'avancement doit correspondre à l'INTERVALLE entre grains, pas à la taille du grain
-    // Sinon avec 60% overlap, on avance trop vite !
     const advancement = grainInterval * this.playbackRate * this.playbackDirection;
     this.currentPosition += advancement;
     
-    // Boucle
     if (this.currentPosition >= this.audioBuffer.duration) {
       this.currentPosition = 0;
     } else if (this.currentPosition < 0) {
@@ -217,6 +214,23 @@ class GranularSynthesisAdapter extends IAudioService {
     };
   }
 
+  createOutputNode() {
+    if (this.outputNode) {
+      return this.outputNode;
+    }
+    
+    this.outputNode = this.audioContext.createGain();
+    this.outputNode.gain.value = 1.0;
+    
+    this.processingChain.disconnect();
+    this.processingChain.connect(this.outputNode);
+    this.outputNode.connect(this.audioContext.destination);
+    
+    console.log('[Audio] Output node créé pour enregistrement');
+    
+    return this.outputNode;
+  }
+
   dispose() {
     this.stopPlayback();
     if (this.processingChain) {
@@ -228,6 +242,7 @@ class GranularSynthesisAdapter extends IAudioService {
     this.audioBuffer = null;
     this.grainPlayer = null;
     this.processingChain = null;
+    this.outputNode = null;
     this.isInitialized = false;
   }
 }
