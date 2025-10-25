@@ -33,8 +33,11 @@ class ConnectSensorUseCase {
         sensor = new Sensor(address, position, color);
       }
 
-      // Connexion physique
-      await this.sensorService.connectSensor(peripheral);
+      // ✅ CORRECTION : Connexion physique AVEC callback de déconnexion
+      await this.sensorService.connectSensor(peripheral, () => {
+        // Callback de déconnexion
+        this.handleDisconnection(sensor);
+      });
       sensor.connect(peripheral);
 
       // Configuration des notifications pour recevoir les données
@@ -105,6 +108,33 @@ class ConnectSensorUseCase {
       this.sensorRepository.save(sensor);
     } catch (error) {
       console.error('Erreur traitement données capteur:', error);
+    }
+  }
+
+  /**
+   * ✅ NOUVELLE MÉTHODE : Gère la déconnexion d'un capteur
+   */
+  handleDisconnection(sensor) {
+    console.log(`[ConnectSensorUseCase] Déconnexion détectée: ${sensor.position}`);
+    
+    try {
+      // Marquer le capteur comme déconnecté
+      sensor.disconnect();
+      
+      // Mettre à jour dans le repository
+      this.sensorRepository.save(sensor);
+      
+      // Émettre l'événement de déconnexion
+      this.eventBus.emit('sensor:disconnected', {
+        address: sensor.address,
+        position: sensor.position,
+        color: sensor.color
+      });
+      
+      console.log(`[ConnectSensorUseCase] Événement sensor:disconnected émis pour ${sensor.position}`);
+      
+    } catch (error) {
+      console.error('[ConnectSensorUseCase] Erreur gestion déconnexion:', error);
     }
   }
 }
