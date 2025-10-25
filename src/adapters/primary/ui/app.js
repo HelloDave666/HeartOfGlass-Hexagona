@@ -6,7 +6,7 @@ console.log('Heart of Glass - Version avec NobleBluetoothAdapter + Audio Granula
 // ========================================
 // MODE HYBRIDE : Basculement IPC / Direct
 // ========================================
-const USE_IPC_MODE = false; // false = mode direct (actuel), true = mode IPC (nouveau)
+const USE_IPC_MODE = true; // false = mode direct (actuel), true = mode IPC (nouveau)
 console.log(`[App] Mode: ${USE_IPC_MODE ? 'IPC (Architecture Hexagonale)' : 'DIRECT (Legacy)'}`);
 
 const path = require('path');
@@ -439,6 +439,98 @@ async function initializeBluetooth() {
     updateScanButton('Bluetooth indisponible', '#e74c3c', false);
     return false;
   }
+}
+
+/**
+ * Configure l'écoute des événements IPC en mode IPC
+ */
+function setupIPCListeners() {
+  if (!USE_IPC_MODE || !window.require) {
+    return;
+  }
+  
+  const { ipcRenderer } = window.require('electron');
+  
+  console.log('[App] Configuration des listeners IPC...');
+  
+  // Événement : Capteur connecté
+  ipcRenderer.on('sensor:connected', (event, data) => {
+    console.log('[App] IPC - Capteur connecté:', data);
+    
+    const address = data.address.toLowerCase();
+    connectedDevices.add(address);
+    
+    const sensorInfo = getSensorInfo(address);
+    if (sensorInfo) {
+      updateDeviceDisplay(sensorInfo.position, {
+        connected: true,
+        address: address
+      });
+      
+      checkIfReady();
+    }
+  });
+  
+  // Événement : Capteur déconnecté
+  ipcRenderer.on('sensor:disconnected', (event, data) => {
+    console.log('[App] IPC - Capteur déconnecté:', data);
+    
+    const address = data.address.toLowerCase();
+    connectedDevices.delete(address);
+    sensorsWithData.delete(address);
+    calibrationOffsets.delete(address);
+    
+    const sensorInfo = getSensorInfo(address);
+    if (sensorInfo) {
+      updateDeviceDisplay(sensorInfo.position, {
+        connected: false
+      });
+      
+      checkIfReady();
+    }
+  });
+  
+  // Événement : Données capteur
+  ipcRenderer.on('sensor:data', (event, data) => {
+    // data contient : { address, position, angles }
+    const address = data.address.toLowerCase();
+    const sensorInfo = getSensorInfo(address);
+    
+    if (!sensorInfo) return;
+    
+    if (!sensorsWithData.has(address)) {
+      console.log('[App] IPC - Premières données:', sensorInfo.position);
+      sensorsWithData.add(address);
+      checkIfReady();
+    }
+    
+    // Calibration
+    if (!calibrationOffsets.has(address)) {
+      calibrationOffsets.set(address, { 
+        x: data.angles.x, 
+        y: data.angles.y, 
+        z: data.angles.z 
+      });
+    }
+    
+    const offsets = calibrationOffsets.get(address);
+    const normalized = {
+      x: normalizeAngle(data.angles.x - offsets.x),
+      y: normalizeAngle(data.angles.y - offsets.y),
+      z: normalizeAngle(data.angles.z - offsets.z)
+    };
+    
+    updateAngles(sensorInfo.position, normalized);
+  });
+  
+  // Événement : Les deux capteurs sont prêts
+  ipcRenderer.on('sensors:ready', () => {
+    console.log('[App] IPC - Les deux capteurs sont prêts');
+    updateScanButton('Capteurs connectés', '#27ae60', false);
+    updateStatus('Deux capteurs connectés et fonctionnels');
+  });
+  
+  console.log('[App] ✓ Listeners IPC configurés');
 }
 
 function handleStateChange(state) {
@@ -1012,6 +1104,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupTabs();
   setupSensorInterface();
   setupAudioInterface();
+  setupIPCListeners();
   
   const bluetoothOk = await initializeBluetooth();
   const audioOk = await initializeAudioSystem();

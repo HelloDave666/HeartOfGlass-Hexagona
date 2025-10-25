@@ -117,35 +117,44 @@ class SensorHandler {
   }
 
   setupEventForwarding() {
-    // Transférer les événements au renderer
-    const eventsToForward = [
-      Events.SENSOR_CONNECTED,
-      Events.SENSOR_DISCONNECTED,
-      Events.SENSOR_DATA,
-      Events.SENSOR_BATTERY,
-      Events.SENSORS_READY
-    ];
+  // Transférer les événements au renderer
+  const eventsToForward = [
+    Events.SENSOR_CONNECTED,
+    Events.SENSOR_DISCONNECTED,
+    Events.SENSOR_DATA,
+    Events.SENSOR_BATTERY,
+    Events.SENSORS_READY
+  ];
 
-    eventsToForward.forEach(eventName => {
-      this.eventBus.on(eventName, (data) => {
-        // Envoyer à toutes les fenêtres
-        const { BrowserWindow } = require('electron');
-        BrowserWindow.getAllWindows().forEach(window => {
-          window.webContents.send(eventName, data);
-        });
+  eventsToForward.forEach(eventName => {
+    this.eventBus.on(eventName, (data) => {
+      // Envoyer à toutes les fenêtres
+      const { BrowserWindow } = require('electron');
+      BrowserWindow.getAllWindows().forEach(window => {
+        window.webContents.send(eventName, data);
       });
     });
+  });
 
-    // Vérifier si les deux capteurs sont prêts
-    this.eventBus.on(Events.SENSOR_DATA, async () => {
-      const bothActive = await this.sensorRepository.areBothSensorsActive();
-      if (bothActive) {
-        this.eventBus.emit(Events.SENSORS_READY);
-        // Arrêter le scan automatiquement
-        await this.sensorService.stopScanning();
-      }
-    });
-  }
+  // Flag pour éviter spam sensors:ready
+  let sensorsReadyEmitted = false;
+
+  // Vérifier si les deux capteurs sont prêts
+  this.eventBus.on(Events.SENSOR_DATA, async () => {
+    const bothActive = await this.sensorRepository.areBothSensorsActive();
+    
+    // N'émettre qu'une seule fois
+    if (bothActive && !sensorsReadyEmitted) {
+      sensorsReadyEmitted = true;
+      this.eventBus.emit(Events.SENSORS_READY);
+      
+      // Arrêter le scan automatiquement
+      await this.sensorService.stopScanning();
+      
+      console.log('[SensorHandler] Les deux capteurs sont prêts');
+    }
+  });
+}
 }
 
 module.exports = SensorHandler;
