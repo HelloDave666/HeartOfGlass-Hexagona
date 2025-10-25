@@ -126,23 +126,45 @@
                     <section class="audio-settings">
                         <h3>Paramètres Audio</h3>
                         
+                        <!-- ✅ CORRIGÉ : Grain Size avec slider -->
                         <div class="setting-item">
                             <label for="grainSizeInput">Taille de grain (ms):</label>
-                            <input type="number" id="grainSizeInput" min="50" max="1000" value="350">
+                            <input 
+                                type="range" 
+                                id="grainSizeInput" 
+                                min="10" 
+                                max="500" 
+                                value="60"
+                                step="1"
+                            >
+                            <span id="grainSizeValue">60 ms</span>
                         </div>
 
+                        <!-- ✅ CORRIGÉ : Overlap avec slider et max=95 -->
                         <div class="setting-item">
                             <label for="overlapInput">Chevauchement (%):</label>
-                            <input type="number" id="overlapInput" min="0" max="99" value="92">
+                            <input 
+                                type="range" 
+                                id="overlapInput" 
+                                min="0" 
+                                max="95" 
+                                value="60"
+                                step="1"
+                            >
+                            <span id="overlapValue">60%</span>
                         </div>
 
+                        <!-- ✅ CORRIGÉ : Tous les window types disponibles -->
                         <div class="setting-item">
                             <label for="windowTypeSelect">Type de fenêtre:</label>
                             <select id="windowTypeSelect">
-                                <option value="hann">Hann</option>
+                                <option value="hann" selected>Hann</option>
+                                <option value="hanning">Hanning</option>
                                 <option value="hamming">Hamming</option>
-                                <option value="rectangle">Rectangle</option>
-                                <option value="triangle">Triangle</option>
+                                <option value="triangular">Triangular</option>
+                                <option value="bartlett">Bartlett</option>
+                                <option value="rectangular">Rectangular</option>
+                                <option value="none">None</option>
                             </select>
                         </div>
                     </section>

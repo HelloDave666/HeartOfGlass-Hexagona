@@ -911,7 +911,17 @@ function handleTimelineClick(event) {
 }
 
 function handleGrainSizeChange(event) {
-  const grainSize = parseInt(event.target.value);
+  let grainSize = parseInt(event.target.value);
+  
+  // Valider min/max
+  if (grainSize < 10) grainSize = 10;
+  if (grainSize > 500) grainSize = 500;
+  
+  // Mettre à jour l'affichage
+  const grainSizeValueDisplay = document.getElementById('grainSizeValue');
+  if (grainSizeValueDisplay) {
+    grainSizeValueDisplay.textContent = `${grainSize} ms`;
+  }
   
   try {
     audioParameters = audioParameters.with({ grainSize });
@@ -928,7 +938,23 @@ function handleGrainSizeChange(event) {
 }
 
 function handleOverlapChange(event) {
-  const overlap = parseInt(event.target.value);
+  let overlap = parseInt(event.target.value);
+  
+  // Vérifier si la valeur est valide
+  if (isNaN(overlap)) {
+    console.warn('[Audio] Valeur overlap invalide:', event.target.value);
+    overlap = AUDIO_CONFIG.defaultOverlap;
+  }
+  
+  // Clamp entre 0 et 95
+  if (overlap < 0) overlap = 0;
+  if (overlap > 95) overlap = 95;
+  
+  // Mettre à jour l'affichage
+  const overlapValueDisplay = document.getElementById('overlapValue');
+  if (overlapValueDisplay) {
+    overlapValueDisplay.textContent = `${overlap}%`;
+  }
   
   try {
     audioParameters = audioParameters.with({ overlap });
@@ -1062,25 +1088,61 @@ function applyIMUToAudio(position, angles, angularVelocity) {
     let playbackRate;
     let direction;
     
-    if (angle >= 0) {
-      const normalizedAngle = Math.min(angle, 90) / 90;
+    // DEAD ZONE : Zone tampon ±2° pour éviter changements brutaux
+    if (Math.abs(angle) <= IMU_MAPPING.deadZone) {
+      // Dans la zone morte : vitesse normale (1.0)
+      playbackRate = 1.0;
+      direction = 1; // Direction par défaut (avant)
+      
+      // Réinitialiser le smoothing pour une transition propre
+      smoothedPlaybackRate = 1.0;
+      
+      // Forcer l'application de la vitesse 1.0
+      audioSystem.setPlaybackRate(1.0, 1);
+      
+      // Affichage UI en VERT pour zone neutre
+      if (audioUI.speedDisplay) {
+        audioUI.speedDisplay.textContent = 'Vitesse: 1.0x →';
+        audioUI.speedDisplay.style.color = '#2ecc71'; // Vert
+      }
+      
+    } else if (angle > IMU_MAPPING.deadZone) {
+      // Rotation positive (vers le haut) : lecture avant
+      const normalizedAngle = Math.min(angle - IMU_MAPPING.deadZone, 90) / 90;
       playbackRate = 1.0 + (normalizedAngle * sensitivity);
       direction = 1;
+      
+      playbackRate = Math.max(0.5, Math.min(3.0, playbackRate));
+      
+      // Lissage
+      smoothedPlaybackRate = smoothedPlaybackRate + (playbackRate - smoothedPlaybackRate) * SMOOTHING_FACTOR;
+      
+      audioSystem.setPlaybackRate(smoothedPlaybackRate, direction);
+      
+      // Affichage UI en BLEU pour lecture avant
+      if (audioUI.speedDisplay) {
+        audioUI.speedDisplay.textContent = `Vitesse: ${smoothedPlaybackRate.toFixed(2)}x →`;
+        audioUI.speedDisplay.style.color = '#3498db'; // Bleu
+      }
+      
     } else {
-      const normalizedAngle = Math.min(Math.abs(angle), 90) / 90;
+      // Rotation négative (vers le bas) : lecture arrière
+      const normalizedAngle = Math.min(Math.abs(angle) - IMU_MAPPING.deadZone, 90) / 90;
       playbackRate = 1.0 + (normalizedAngle * sensitivity);
       direction = -1;
-    }
-    
-    playbackRate = Math.max(0.5, Math.min(3.0, playbackRate));
-    
-    smoothedPlaybackRate = smoothedPlaybackRate + (playbackRate - smoothedPlaybackRate) * SMOOTHING_FACTOR;
-    
-    audioSystem.setPlaybackRate(smoothedPlaybackRate, direction);
-    
-    if (audioUI.speedDisplay) {
-      const directionLabel = direction === 1 ? '→' : '←';
-      audioUI.speedDisplay.textContent = `Vitesse: ${smoothedPlaybackRate.toFixed(2)}x ${directionLabel}`;
+      
+      playbackRate = Math.max(0.5, Math.min(3.0, playbackRate));
+      
+      // Lissage
+      smoothedPlaybackRate = smoothedPlaybackRate + (playbackRate - smoothedPlaybackRate) * SMOOTHING_FACTOR;
+      
+      audioSystem.setPlaybackRate(smoothedPlaybackRate, direction);
+      
+      // Affichage UI en ROUGE pour lecture arrière
+      if (audioUI.speedDisplay) {
+        audioUI.speedDisplay.textContent = `Vitesse: ${smoothedPlaybackRate.toFixed(2)}x ←`;
+        audioUI.speedDisplay.style.color = '#e74c3c'; // Rouge
+      }
     }
   }
   
