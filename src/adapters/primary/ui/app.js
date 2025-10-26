@@ -1,5 +1,6 @@
 ﻿// src/adapters/primary/ui/app.js
 // INTÉGRATION : NobleBluetoothAdapter + Système Audio Granulaire + Enregistrement MP3
+// Phase 5 - Refactorisation : TabController + StateManager + SensorUIController intégrés
 
 console.log('Heart of Glass - Version avec NobleBluetoothAdapter + Audio Granulaire + MP3 Recording');
 
@@ -38,6 +39,7 @@ const GranularSynthesisAdapter = require(audioAdapterPath);
 const AudioRecorder = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'services', 'AudioRecorder.js'));
 const TabController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'TabController.js'));
 const StateManager = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'services', 'StateManager.js'));
+const SensorUIController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'SensorUIController.js'));
 
 const SENSOR_CONFIG = {
   leftAddress: 'ce:de:c2:f5:17:be',
@@ -77,6 +79,7 @@ const IMU_MAPPING = {
 };
 
 let tabController = null;
+let sensorUIController = null;
 
 function getSensorInfo(address) {
   const addrLower = address.toLowerCase();
@@ -105,117 +108,40 @@ function setupTabs() {
 }
 
 function setupSensorInterface() {
-  const sensorContainer = document.getElementById('sensorContainer');
-  if (!sensorContainer) return;
-
-  sensorContainer.innerHTML = `
-    <div class="sensor-controls">
-      <button id="scanButton" class="scan-button">
-        Rechercher les capteurs
-      </button>
-      <div id="connectionStatus" class="connection-status"></div>
-    </div>
-    <div id="deviceList" class="device-list"></div>
-  `;
-
-  const scanButton = document.getElementById('scanButton');
-  scanButton.addEventListener('click', toggleScan);
-  
-  createDeviceDisplays();
-}
-
-function createDeviceDisplays() {
-  const deviceList = document.getElementById('deviceList');
-  
-  ['GAUCHE', 'DROIT'].forEach(position => {
-    const color = position === 'GAUCHE' ? SENSOR_CONFIG.leftColor : SENSOR_CONFIG.rightColor;
-    
-    const element = document.createElement('div');
-    element.className = 'device-info';
-    element.dataset.position = position;
-    element.innerHTML = `
-      <div class="status-indicator status-disconnected"></div>
-      <div class="info-basic">
-        <h3 style="color: ${color}">Capteur ${position}</h3>
-        <p class="state">État: déconnecté</p>
-        <p class="address">Adresse: --</p>
-        <p class="rssi">Signal: --</p>
-      </div>
-      <div class="info-sensor">
-        <h3>Données</h3>
-        <p class="roll" style="color: ${color}">Roll (X): --°</p>
-        <p class="pitch" style="color: ${color}">Pitch (Y): --°</p>
-        <p class="yaw" style="color: ${color}">Yaw (Z): --°</p>
-      </div>
-    `;
-    
-    deviceList.appendChild(element);
+  sensorUIController = new SensorUIController({
+    sensors: SENSOR_CONFIG,
+    onScanToggle: toggleScan
   });
-}
-
-function updateScanButton(text, color, enabled) {
-  const button = document.getElementById('scanButton');
-  if (button) {
-    button.textContent = text;
-    button.style.backgroundColor = color;
-
-    if (button instanceof HTMLButtonElement) {
-      button.disabled = !enabled;
-    } else {
-      if (enabled) {
-        button.removeAttribute('aria-disabled');
-      } else {
-        button.setAttribute('aria-disabled', 'true');
-      }
-    }
-
-    button.style.cursor = enabled ? 'pointer' : 'not-allowed';
+  
+  const initialized = sensorUIController.initialize('sensorContainer');
+  
+  if (!initialized) {
+    console.error('[App] Échec initialisation SensorUIController');
   }
 }
 
-function updateStatus(message) {
-  const status = document.getElementById('connectionStatus');
-  if (status) {
-    status.textContent = message;
-  }
-}
+// ========================================
+// FONCTIONS OBSOLÈTES SUPPRIMÉES
+// ========================================
+// Les fonctions suivantes ont été déplacées dans SensorUIController :
+// - createDeviceDisplays()
+// - updateScanButton()
+// - updateStatus()
+// - updateDeviceDisplay()
 
-function updateDeviceDisplay(position, info) {
-  const display = document.querySelector(`[data-position="${position}"]`);
-  if (!display) return;
-  
-  const indicator = display.querySelector('.status-indicator');
-  indicator.className = `status-indicator ${info.connected ? 'status-connected' : 'status-disconnected'}`;
-  
-  display.querySelector('.state').textContent = `État: ${info.connected ? 'connecté' : 'déconnecté'}`;
-  
-  if (info.connected) {
-    if (info.address) display.querySelector('.address').textContent = `Adresse: ${info.address}`;
-    if (info.rssi !== undefined) {
-      const signalPercent = Math.max(0, Math.min(100, 100 + info.rssi));
-      display.querySelector('.rssi').textContent = `Signal: ${info.rssi}dBm (${signalPercent}%)`;
-    }
-  } else {
-    display.querySelector('.address').textContent = 'Adresse: --';
-    display.querySelector('.rssi').textContent = 'Signal: --';
-    display.querySelector('.roll').textContent = 'Roll (X): --°';
-    display.querySelector('.pitch').textContent = 'Pitch (Y): --°';
-    display.querySelector('.yaw').textContent = 'Yaw (Z): --°';
-  }
-}
-
+// ========================================
+// FONCTION updateAngles() - REFACTORISÉE
+// ========================================
 function updateAngles(position, angles) {
-  const display = document.querySelector(`[data-position="${position}"]`);
-  if (!display) return;
+  // Délégation de l'affichage UI au controller
+  sensorUIController.updateAngles(position, angles);
   
-  display.querySelector('.roll').textContent = `Roll (X): ${angles.x.toFixed(1)}°`;
-  display.querySelector('.pitch').textContent = `Pitch (Y): ${angles.y.toFixed(1)}°`;
-  display.querySelector('.yaw').textContent = `Yaw (Z): ${angles.z.toFixed(1)}°`;
-  
+  // Log pour le capteur DROIT
   if (position === 'DROIT') {
     console.log(`[IMU] DROIT - Y: ${angles.y.toFixed(1)}° | IMU enabled: ${state.isIMUToAudioEnabled()} | Playing: ${state.getAudioState().isPlaying}`);
   }
   
+  // Logique IMU → Audio (reste dans app.js car c'est de la logique métier)
   if (state.isIMUToAudioEnabled() && state.getAudioSystem() && state.getAudioState().isPlaying) {
     const now = Date.now();
     const side = position === 'GAUCHE' ? 'left' : 'right';
@@ -391,8 +317,8 @@ async function initializeBluetooth() {
     
   } catch (error) {
     console.error('[App] Erreur initialisation Bluetooth:', error);
-    updateStatus(`Erreur Bluetooth: ${error.message}`);
-    updateScanButton('Bluetooth indisponible', '#e74c3c', false);
+    sensorUIController.updateStatus(`Erreur Bluetooth: ${error.message}`);
+    sensorUIController.updateScanButton('Bluetooth indisponible', '#e74c3c', false);
     return false;
   }
 }
@@ -414,7 +340,7 @@ function setupIPCListeners() {
     
     const sensorInfo = getSensorInfo(address);
     if (sensorInfo) {
-      updateDeviceDisplay(sensorInfo.position, {
+      sensorUIController.updateDeviceDisplay(sensorInfo.position, {
         connected: true,
         address: address
       });
@@ -433,7 +359,7 @@ function setupIPCListeners() {
     
     const sensorInfo = getSensorInfo(address);
     if (sensorInfo) {
-      updateDeviceDisplay(sensorInfo.position, {
+      sensorUIController.updateDeviceDisplay(sensorInfo.position, {
         connected: false
       });
       
@@ -473,8 +399,8 @@ function setupIPCListeners() {
   
   ipcRenderer.on('sensors:ready', () => {
     console.log('[App] IPC - Les deux capteurs sont prêts');
-    updateScanButton('Capteurs connectés', '#27ae60', false);
-    updateStatus('Deux capteurs connectés et fonctionnels');
+    sensorUIController.updateScanButton('Capteurs connectés', '#27ae60', false);
+    sensorUIController.updateStatus('Deux capteurs connectés et fonctionnels');
   });
   
   console.log('[App] ✓ Listeners IPC configurés');
@@ -484,12 +410,12 @@ function handleStateChange(stateValue) {
   console.log('[App] État Bluetooth changé:', stateValue);
   
   if (stateValue === 'poweredOff') {
-    updateStatus('Bluetooth désactivé');
-    updateScanButton('Bluetooth désactivé', '#e74c3c', false);
+    sensorUIController.updateStatus('Bluetooth désactivé');
+    sensorUIController.updateScanButton('Bluetooth désactivé', '#e74c3c', false);
   } else if (stateValue === 'poweredOn') {
-    updateStatus('Bluetooth activé');
+    sensorUIController.updateStatus('Bluetooth activé');
     if (!state.getBluetoothAdapter().getScanStatus().isScanning) {
-      updateScanButton('Rechercher les capteurs', '#4CAF50', true);
+      sensorUIController.updateScanButton('Rechercher les capteurs', '#4CAF50', true);
     }
   }
 }
@@ -506,7 +432,7 @@ async function handleDiscovery(peripheral) {
   console.log(`[App] Adresse: ${address}`);
   console.log(`[App] Signal: ${peripheral.rssi}dBm`);
   
-  updateDeviceDisplay(sensorInfo.position, {
+  sensorUIController.updateDeviceDisplay(sensorInfo.position, {
     connected: false,
     address: address,
     rssi: peripheral.rssi
@@ -514,7 +440,7 @@ async function handleDiscovery(peripheral) {
   
   try {
     console.log(`[App] Connexion à ${sensorInfo.position}...`);
-    updateStatus(`Connexion au capteur ${sensorInfo.position}...`);
+    sensorUIController.updateStatus(`Connexion au capteur ${sensorInfo.position}...`);
     
     await state.getBluetoothAdapter().connectSensor(peripheral, () => {
       handleDisconnection(address, sensorInfo.position);
@@ -525,7 +451,7 @@ async function handleDiscovery(peripheral) {
     
   } catch (error) {
     console.error(`[App] Erreur connexion ${sensorInfo.position}:`, error);
-    updateStatus(`Erreur: ${error.message}`);
+    sensorUIController.updateStatus(`Erreur: ${error.message}`);
   }
 }
 
@@ -534,7 +460,7 @@ async function handleConnection(address, position, color, peripheral) {
   
   state.getConnectedDevices().add(address);
   
-  updateDeviceDisplay(position, {
+  sensorUIController.updateDeviceDisplay(position, {
     connected: true,
     address: address
   });
@@ -556,7 +482,7 @@ function handleDisconnection(address, position) {
   state.getCalibrationOffsets().delete(address);
   state.getPeripheralRefs().delete(address);
   
-  updateDeviceDisplay(position, {
+  sensorUIController.updateDeviceDisplay(position, {
     connected: false
   });
   
@@ -564,16 +490,16 @@ function handleDisconnection(address, position) {
     console.log('[App] Aucun capteur connecté');
     
     if (!state.getBluetoothAdapter().getScanStatus().isScanning) {
-      updateScanButton('Rechercher les capteurs', '#4CAF50', true);
-      updateStatus('Aucun capteur connecté');
+      sensorUIController.updateScanButton('Rechercher les capteurs', '#4CAF50', true);
+      sensorUIController.updateStatus('Aucun capteur connecté');
     }
   }
   else {
     console.log('[App] Un capteur reste connecté');
     
     if (!state.getBluetoothAdapter().getScanStatus().isScanning) {
-      updateScanButton('Reconnecter les capteurs', '#f39c12', true);
-      updateStatus(`Capteur ${position} déconnecté - Cliquez pour reconnecter`);
+      sensorUIController.updateScanButton('Reconnecter les capteurs', '#f39c12', true);
+      sensorUIController.updateStatus(`Capteur ${position} déconnecté - Cliquez pour reconnecter`);
     }
   }
 }
@@ -623,24 +549,24 @@ function checkIfReady() {
       stopScan();
     }
     
-    updateScanButton('Capteurs connectés', '#27ae60', false);
-    updateStatus('Deux capteurs connectés et fonctionnels');
+    sensorUIController.updateScanButton('Capteurs connectés', '#27ae60', false);
+    sensorUIController.updateStatus('Deux capteurs connectés et fonctionnels');
   }
   else if ((leftConnected && !rightConnected) || (!leftConnected && rightConnected)) {
     console.log('[App] Un capteur manque');
     
     if (!state.getBluetoothAdapter().getScanStatus().isScanning) {
       const missingSensor = !leftConnected ? 'GAUCHE' : 'DROIT';
-      updateScanButton('Reconnecter les capteurs', '#f39c12', true);
-      updateStatus(`Capteur ${missingSensor} déconnecté - Cliquez pour reconnecter`);
+      sensorUIController.updateScanButton('Reconnecter les capteurs', '#f39c12', true);
+      sensorUIController.updateStatus(`Capteur ${missingSensor} déconnecté - Cliquez pour reconnecter`);
     }
   }
   else if (!leftConnected && !rightConnected) {
     console.log('[App] Aucun capteur connecté');
     
     if (!state.getBluetoothAdapter().getScanStatus().isScanning) {
-      updateScanButton('Rechercher les capteurs', '#4CAF50', true);
-      updateStatus('Aucun capteur connecté - Cliquez pour rechercher');
+      sensorUIController.updateScanButton('Rechercher les capteurs', '#4CAF50', true);
+      sensorUIController.updateStatus('Aucun capteur connecté - Cliquez pour rechercher');
     }
   }
 }
@@ -666,17 +592,17 @@ async function startScan() {
     
     if (leftConnected && rightConnected && leftHasData && rightHasData) {
       console.log('[App] Les deux capteurs sont déjà connectés et fonctionnels');
-      updateStatus('Les deux capteurs fonctionnent déjà');
+      sensorUIController.updateStatus('Les deux capteurs fonctionnent déjà');
       return;
     }
     
-    updateScanButton('Recherche...', '#e74c3c', false);
-    updateStatus('Recherche des capteurs...');
+    sensorUIController.updateScanButton('Recherche...', '#e74c3c', false);
+    sensorUIController.updateStatus('Recherche des capteurs...');
     
     await state.getBluetoothAdapter().startScanning();
     
     console.log('[App] Scan démarré');
-    updateStatus('Scan actif - Recherche des capteurs...');
+    sensorUIController.updateStatus('Scan actif - Recherche des capteurs...');
     
     const timeout = setTimeout(() => {
       const leftNowConnected = state.getConnectedDevices().has(SENSOR_CONFIG.leftAddress.toLowerCase());
@@ -687,7 +613,7 @@ async function startScan() {
         const missing = [];
         if (!leftNowConnected) missing.push('GAUCHE');
         if (!rightNowConnected) missing.push('DROIT');
-        updateStatus(`Timeout - ${missing.join(' et ')} non trouvé(s)`);
+        sensorUIController.updateStatus(`Timeout - ${missing.join(' et ')} non trouvé(s)`);
         stopScan();
       }
     }, 45000);
@@ -696,8 +622,8 @@ async function startScan() {
     
   } catch (error) {
     console.error('[App] Erreur démarrage scan:', error);
-    updateStatus('Erreur de scan');
-    updateScanButton('Réessayer', '#e74c3c', true);
+    sensorUIController.updateStatus('Erreur de scan');
+    sensorUIController.updateScanButton('Réessayer', '#e74c3c', true);
   }
 }
 
@@ -711,7 +637,7 @@ async function stopScan() {
     
     console.log('[App] Scan arrêté');
     
-    updateScanButton('Stabilisation...', '#95a5a6', false);
+    sensorUIController.updateScanButton('Stabilisation...', '#95a5a6', false);
     
     setTimeout(() => {
       const leftConnected = state.getConnectedDevices().has(SENSOR_CONFIG.leftAddress.toLowerCase());
@@ -720,22 +646,22 @@ async function stopScan() {
       const rightHasData = state.getSensorsWithData().has(SENSOR_CONFIG.rightAddress.toLowerCase());
       
       if (leftConnected && rightConnected && leftHasData && rightHasData) {
-        updateScanButton('Capteurs connectés', '#27ae60', false);
-        updateStatus('Deux capteurs connectés et fonctionnels');
+        sensorUIController.updateScanButton('Capteurs connectés', '#27ae60', false);
+        sensorUIController.updateStatus('Deux capteurs connectés et fonctionnels');
       }
       else if (leftConnected || rightConnected) {
         const missingSensor = !leftConnected ? 'GAUCHE' : 'DROIT';
-        updateScanButton('Reconnecter les capteurs', '#f39c12', true);
-        updateStatus(`Capteur ${missingSensor} manquant - Cliquez pour reconnecter`);
+        sensorUIController.updateScanButton('Reconnecter les capteurs', '#f39c12', true);
+        sensorUIController.updateStatus(`Capteur ${missingSensor} manquant - Cliquez pour reconnecter`);
       }
       else {
-        updateScanButton('Rechercher les capteurs', '#4CAF50', true);
-        updateStatus('Prêt pour nouveau scan');
+        sensorUIController.updateScanButton('Rechercher les capteurs', '#4CAF50', true);
+        sensorUIController.updateStatus('Prêt pour nouveau scan');
       }
     }, 3000);
     
   } catch (error) {
-    console.error('[App] Errêt arrêt scan:', error);
+    console.error('[App] Erreur arrêt scan:', error);
   }
 }
 
@@ -1107,7 +1033,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   if (bluetoothOk) {
     console.log('[App] Bluetooth prêt');
-    updateStatus('Cliquez sur "Rechercher les capteurs" pour commencer');
+    sensorUIController.updateStatus('Cliquez sur "Rechercher les capteurs" pour commencer');
   } else {
     console.error('[App] Bluetooth échoué');
   }
@@ -1147,6 +1073,11 @@ if (window.require) {
     if (tabController) {
       tabController.dispose();
       tabController = null;
+    }
+    
+    if (sensorUIController) {
+      sensorUIController.dispose();
+      sensorUIController = null;
     }
     
     setTimeout(() => {
