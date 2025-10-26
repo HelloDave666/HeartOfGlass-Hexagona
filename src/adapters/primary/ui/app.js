@@ -1,29 +1,26 @@
 ﻿// src/adapters/primary/ui/app.js
 // INTÉGRATION : NobleBluetoothAdapter + Système Audio Granulaire + Enregistrement MP3
-// Phase 5 - Refactorisation : TabController + StateManager + SensorUIController intégrés
+// Phase 5 - Refactorisation : TabController + StateManager + SensorUIController + AudioUIController
 
 console.log('Heart of Glass - Version avec NobleBluetoothAdapter + Audio Granulaire + MP3 Recording');
 
 // ========================================
 // MODE HYBRIDE : Basculement IPC / Direct
 // ========================================
-const USE_IPC_MODE = true; // false = mode direct (actuel), true = mode IPC (nouveau)
+const USE_IPC_MODE = true;
 console.log(`[App] Mode: ${USE_IPC_MODE ? 'IPC (Architecture Hexagonale)' : 'DIRECT (Legacy)'}`)
 
 const path = require('path');
-
 const projectRoot = process.cwd();
 
 // Import conditionnel selon le mode
 let bluetoothAdapterClass;
 
 if (USE_IPC_MODE) {
-  // Mode IPC : Utiliser le client IPC
   const SensorIPCClient = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'services', 'SensorIPCClient.js'));
   bluetoothAdapterClass = SensorIPCClient;
   console.log('[App] Mode IPC : SensorIPCClient chargé');
 } else {
-  // Mode Direct : Utiliser NobleBluetoothAdapter
   const adapterPath = path.join(projectRoot, 'src', 'adapters', 'secondary', 'sensors', 'bluetooth', 'NobleBluetoothAdapter.js');
   bluetoothAdapterClass = require(adapterPath);
   console.log('[App] Mode DIRECT : NobleBluetoothAdapter chargé');
@@ -40,6 +37,7 @@ const AudioRecorder = require(path.join(projectRoot, 'src', 'adapters', 'primary
 const TabController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'TabController.js'));
 const StateManager = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'services', 'StateManager.js'));
 const SensorUIController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'SensorUIController.js'));
+const AudioUIController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'AudioUIController.js'));
 
 const SENSOR_CONFIG = {
   leftAddress: 'ce:de:c2:f5:17:be',
@@ -80,6 +78,7 @@ const IMU_MAPPING = {
 
 let tabController = null;
 let sensorUIController = null;
+let audioUIController = null;
 
 function getSensorInfo(address) {
   const addrLower = address.toLowerCase();
@@ -120,28 +119,13 @@ function setupSensorInterface() {
   }
 }
 
-// ========================================
-// FONCTIONS OBSOLÈTES SUPPRIMÉES
-// ========================================
-// Les fonctions suivantes ont été déplacées dans SensorUIController :
-// - createDeviceDisplays()
-// - updateScanButton()
-// - updateStatus()
-// - updateDeviceDisplay()
-
-// ========================================
-// FONCTION updateAngles() - REFACTORISÉE
-// ========================================
 function updateAngles(position, angles) {
-  // Délégation de l'affichage UI au controller
   sensorUIController.updateAngles(position, angles);
   
-  // Log pour le capteur DROIT
   if (position === 'DROIT') {
     console.log(`[IMU] DROIT - Y: ${angles.y.toFixed(1)}° | IMU enabled: ${state.isIMUToAudioEnabled()} | Playing: ${state.getAudioState().isPlaying}`);
   }
   
-  // Logique IMU → Audio (reste dans app.js car c'est de la logique métier)
   if (state.isIMUToAudioEnabled() && state.getAudioSystem() && state.getAudioState().isPlaying) {
     const now = Date.now();
     const side = position === 'GAUCHE' ? 'left' : 'right';
@@ -163,136 +147,52 @@ function updateAngles(position, angles) {
   }
 }
 
+// ========================================
+// AUDIO UI - REFACTORISÉ AVEC AudioUIController
+// ========================================
+
 function setupAudioInterface() {
   console.log('[Audio] Configuration interface audio...');
   
-  const audioUI = state.getAudioUI();
+  audioUIController = new AudioUIController({
+    audioConfig: AUDIO_CONFIG,
+    onFileSelect: handleFileSelect,
+    onPlayPauseToggle: togglePlayPause,
+    onTimelineClick: handleTimelineClick,
+    onGrainSizeChange: handleGrainSizeChange,
+    onOverlapChange: handleOverlapChange,
+    onWindowChange: handleWindowChange,
+    onIMUToggle: handleIMUToggle,
+    onRecordToggle: toggleRecording
+  });
   
-  audioUI.fileInput = document.getElementById('audioFile');
-  audioUI.fileName = null;
-  audioUI.playPauseButton = document.getElementById('playPauseButton');
-  audioUI.stopButton = null;
+  const initialized = audioUIController.initialize();
   
-  audioUI.timeline = document.getElementById('timelineContainer');
-  audioUI.timelineProgress = document.getElementById('timelineProgress');
-  audioUI.timelineHandle = document.getElementById('timelineHandle');
-  audioUI.positionDisplay = document.getElementById('positionDisplay');
-  
-  audioUI.audioStatus = document.getElementById('audioStatus');
-  audioUI.speedDisplay = document.getElementById('speedDisplay');
-  audioUI.volumeDisplay = document.getElementById('volumeDisplay');
-  
-  audioUI.grainSizeInput = document.getElementById('grainSizeInput');
-  audioUI.overlapInput = document.getElementById('overlapInput');
-  audioUI.windowSelect = document.getElementById('windowTypeSelect');
-  
-  audioUI.imuToggle = document.getElementById('imuControl');
-  audioUI.imuSensitivity = document.getElementById('sensitivitySlider');
-  
-  audioUI.recordButton = document.getElementById('recordButton');
-  
-  if (!audioUI.fileInput || !audioUI.playPauseButton) {
-    console.error('[Audio] Éléments UI audio manquants');
+  if (!initialized) {
+    console.error('[App] Échec initialisation AudioUIController');
     return;
   }
   
-  audioUI.fileInput.addEventListener('change', handleFileSelect);
-  audioUI.playPauseButton.addEventListener('click', togglePlayPause);
-  
-  if (audioUI.timeline) {
-    audioUI.timeline.addEventListener('click', handleTimelineClick);
-  }
-  
-  if (audioUI.grainSizeInput) {
-    audioUI.grainSizeInput.addEventListener('input', handleGrainSizeChange);
-  }
-  if (audioUI.overlapInput) {
-    audioUI.overlapInput.addEventListener('input', handleOverlapChange);
-  }
-  if (audioUI.windowSelect) {
-    audioUI.windowSelect.addEventListener('change', handleWindowChange);
-  }
-  
-  if (audioUI.imuToggle) {
-    audioUI.imuToggle.addEventListener('change', handleIMUToggle);
-  }
-  
-  if (audioUI.recordButton) {
-    audioUI.recordButton.addEventListener('click', toggleRecording);
-  }
-  
+  // Mise à jour initiale de l'interface
   updateAudioUI();
   
   console.log('[Audio] Interface audio configurée');
 }
 
 function updateAudioUI() {
-  const audioUI = state.getAudioUI();
-  const audioState = state.getAudioState();
-  const currentAudioFile = state.getCurrentAudioFile();
-  const isRecording = state.getIsRecording();
-  
-  if (audioUI.playPauseButton) {
-    const playIcon = audioUI.playPauseButton.querySelector('.play-icon');
-    const pauseIcon = audioUI.playPauseButton.querySelector('.pause-icon');
-    
-    if (!currentAudioFile) {
-      audioUI.playPauseButton.disabled = true;
-      if (playIcon) playIcon.style.display = 'inline';
-      if (pauseIcon) pauseIcon.style.display = 'none';
-    } else {
-      audioUI.playPauseButton.disabled = false;
-      if (audioState.isPlaying) {
-        if (playIcon) playIcon.style.display = 'none';
-        if (pauseIcon) pauseIcon.style.display = 'inline';
-      } else {
-        if (playIcon) playIcon.style.display = 'inline';
-        if (pauseIcon) pauseIcon.style.display = 'none';
-      }
-    }
-  }
-  
-  if (audioUI.recordButton) {
-    if (currentAudioFile && audioState.isPlaying) {
-      audioUI.recordButton.disabled = false;
-      audioUI.recordButton.style.backgroundColor = isRecording ? '#e74c3c' : '#f39c12';
-      audioUI.recordButton.title = isRecording ? 'Arrêter l\'enregistrement' : 'Démarrer l\'enregistrement';
-    } else {
-      audioUI.recordButton.disabled = true;
-      audioUI.recordButton.style.backgroundColor = '#95a5a6';
-      audioUI.recordButton.title = 'Démarrez la lecture pour enregistrer';
-    }
-  }
-  
-  if (audioUI.timelineProgress && audioState.duration > 0) {
-    const percent = (audioState.currentPosition / audioState.duration) * 100;
-    audioUI.timelineProgress.style.width = `${percent}%`;
-    
-    if (audioUI.timelineHandle) {
-      audioUI.timelineHandle.style.left = `${percent}%`;
-    }
-  }
-  
-  if (audioUI.positionDisplay) {
-    const current = formatTime(audioState.currentPosition);
-    const total = formatTime(audioState.duration);
-    audioUI.positionDisplay.textContent = `${current} / ${total}`;
-  }
-  
-  if (audioUI.audioStatus) {
-    audioUI.audioStatus.textContent = `État: ${audioState.isPlaying ? 'Lecture' : 'Arrêté'}`;
-  }
-  
-  if (audioUI.volumeDisplay) {
-    audioUI.volumeDisplay.textContent = `Volume: ${Math.round(audioState.volume * 100)}%`;
-  }
+  audioUIController.updateUI({
+    audioState: state.getAudioState(),
+    currentFile: state.getCurrentAudioFile(),
+    isRecording: state.getIsRecording()
+  });
 }
 
-function formatTime(seconds) {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
+// ========================================
+// FONCTIONS OBSOLÈTES SUPPRIMÉES
+// ========================================
+// Les fonctions suivantes ont été déplacées dans AudioUIController :
+// - formatTime() → audioUIController.formatTime()
+// - Logique d'affichage updateAudioUI() → audioUIController.updateUI()
 
 async function initializeBluetooth() {
   const modeText = USE_IPC_MODE ? 'IPC' : 'DIRECT';
@@ -771,9 +671,7 @@ async function stopAudio() {
 function handleTimelineClick(event) {
   if (!state.getCurrentAudioFile() || !state.getAudioSystem()) return;
   
-  const rect = state.getAudioUI().timeline.getBoundingClientRect();
-  const clickX = event.clientX - rect.left;
-  const percent = (clickX / rect.width) * 100;
+  const percent = audioUIController.getTimelineClickPosition(event);
   const newPosition = (percent / 100) * state.getAudioState().duration;
   
   state.getAudioSystem().setPlaybackPosition(newPosition);
@@ -789,10 +687,7 @@ function handleGrainSizeChange(event) {
   if (grainSize < 10) grainSize = 10;
   if (grainSize > 500) grainSize = 500;
   
-  const grainSizeValueDisplay = document.getElementById('grainSizeValue');
-  if (grainSizeValueDisplay) {
-    grainSizeValueDisplay.textContent = `${grainSize} ms`;
-  }
+  audioUIController.updateGrainSizeDisplay(grainSize);
   
   try {
     state.setAudioParameters(state.getAudioParameters().with({ grainSize }));
@@ -819,10 +714,7 @@ function handleOverlapChange(event) {
   if (overlap < 0) overlap = 0;
   if (overlap > 95) overlap = 95;
   
-  const overlapValueDisplay = document.getElementById('overlapValue');
-  if (overlapValueDisplay) {
-    overlapValueDisplay.textContent = `${overlap}%`;
-  }
+  audioUIController.updateOverlapDisplay(overlap);
   
   try {
     state.setAudioParameters(state.getAudioParameters().with({ overlap }));
@@ -946,7 +838,7 @@ function stopTimelineUpdates() {
 }
 
 function applyIMUToAudio(position, angles, angularVelocity) {
-  const audioUI = state.getAudioUI();
+  const audioUI = audioUIController.getUIReferences();
   if (!audioUI.imuSensitivity || !state.getAudioSystem()) return;
   
   const sensitivity = parseFloat(audioUI.imuSensitivity.value);
@@ -962,13 +854,9 @@ function applyIMUToAudio(position, angles, angularVelocity) {
       direction = 1;
       
       state.setSmoothedPlaybackRate(1.0);
-      
       state.getAudioSystem().setPlaybackRate(1.0, 1);
       
-      if (audioUI.speedDisplay) {
-        audioUI.speedDisplay.textContent = 'Vitesse: 1.0x →';
-        audioUI.speedDisplay.style.color = '#2ecc71';
-      }
+      audioUIController.updateSpeedDisplay(1.0, 1, true);
       
     } else if (angle > IMU_MAPPING.deadZone) {
       const normalizedAngle = Math.min(angle - IMU_MAPPING.deadZone, 90) / 90;
@@ -982,10 +870,7 @@ function applyIMUToAudio(position, angles, angularVelocity) {
       
       state.getAudioSystem().setPlaybackRate(state.getSmoothedPlaybackRate(), direction);
       
-      if (audioUI.speedDisplay) {
-        audioUI.speedDisplay.textContent = `Vitesse: ${state.getSmoothedPlaybackRate().toFixed(2)}x →`;
-        audioUI.speedDisplay.style.color = '#3498db';
-      }
+      audioUIController.updateSpeedDisplay(state.getSmoothedPlaybackRate(), direction, false);
       
     } else {
       const normalizedAngle = Math.min(Math.abs(angle) - IMU_MAPPING.deadZone, 90) / 90;
@@ -999,10 +884,7 @@ function applyIMUToAudio(position, angles, angularVelocity) {
       
       state.getAudioSystem().setPlaybackRate(state.getSmoothedPlaybackRate(), direction);
       
-      if (audioUI.speedDisplay) {
-        audioUI.speedDisplay.textContent = `Vitesse: ${state.getSmoothedPlaybackRate().toFixed(2)}x ←`;
-        audioUI.speedDisplay.style.color = '#e74c3c';
-      }
+      audioUIController.updateSpeedDisplay(state.getSmoothedPlaybackRate(), direction, false);
     }
   }
   
@@ -1014,9 +896,7 @@ function applyIMUToAudio(position, angles, angularVelocity) {
     state.getAudioSystem().setVolume(volume);
     state.setAudioState(state.getAudioState().with({ volume }));
     
-    if (audioUI.volumeDisplay) {
-      audioUI.volumeDisplay.textContent = `Volume: ${Math.round(volume * 100)}%`;
-    }
+    audioUIController.updateVolumeDisplay(state.getAudioState());
   }
 }
 
@@ -1078,6 +958,11 @@ if (window.require) {
     if (sensorUIController) {
       sensorUIController.dispose();
       sensorUIController = null;
+    }
+    
+    if (audioUIController) {
+      audioUIController.dispose();
+      audioUIController = null;
     }
     
     setTimeout(() => {
