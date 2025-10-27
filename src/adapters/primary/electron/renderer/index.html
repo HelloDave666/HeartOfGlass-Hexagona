@@ -18,48 +18,47 @@
 
         <!-- Navigation par onglets -->
         <nav class="tab-navigation">
-            <button class="tab-button active" data-tab="mainTab">Principal</button>
+            <button class="tab-button active" data-tab="heartofglassTab">Heart Of Glass</button>
+            <button class="tab-button" data-tab="bluemondayTab">Blue Monday</button>
             <button class="tab-button" data-tab="soundTab">Sound Control</button>
             <button class="tab-button" data-tab="settingsTab">Paramètres</button>
         </nav>
 
         <!-- Contenu des onglets -->
         <main class="tab-container">
-            <!-- Onglet Principal -->
-            <div id="mainTab" class="tab-content active">
-                <div class="main-layout">
-                    <!-- Zone des capteurs -->
-                    <section class="sensor-section">
-                        <h2>Capteurs IMU</h2>
-                        <!-- CONTENEUR MANQUANT AJOUTÉ ICI -->
-                        <div id="sensorContainer">
-                            <!-- Le composant SensorDisplay va injecter son contenu ici -->
-                        </div>
-                    </section>
-
-                    <!-- Zone narrative -->
-                    <section class="narrative-section">
-                        <h2>Espace Narratif</h2>
-                        <div id="narrativeSpace" class="narrative-space">
-                            <!-- Rita/Echo apparaîtront ici -->
-                            <div id="mainContent"></div>
-                        </div>
-                        
-                        <!-- Système de dialogue -->
-                        <div class="dialogue-container" style="display: none;">
-                            <div class="dialogue-box">
-                                <div class="character-portrait">
-                                    <img id="character-image" src="" alt="Personnage">
-                                </div>
-                                <div class="dialogue-content-wrapper">
-                                    <h3 id="speaker-name">Rita</h3>
-                                    <p id="dialogue-content"></p>
-                                    <span class="continue-indicator" style="display: none;">▼</span>
-                                </div>
+            <!-- ✨ NOUVEAU : Onglet Heart Of Glass (Espace Narratif) -->
+            <div id="heartofglassTab" class="tab-content active">
+                <section class="narrative-section">
+                    <h2>Espace Narratif</h2>
+                    <div id="narrativeSpace" class="narrative-space">
+                        <!-- Rita/Echo apparaîtront ici -->
+                        <div id="mainContent"></div>
+                    </div>
+                    
+                    <!-- Système de dialogue -->
+                    <div class="dialogue-container" style="display: none;">
+                        <div class="dialogue-box">
+                            <div class="character-portrait">
+                                <img id="character-image" src="" alt="Personnage">
+                            </div>
+                            <div class="dialogue-content-wrapper">
+                                <h3 id="speaker-name">Rita</h3>
+                                <p id="dialogue-content"></p>
+                                <span class="continue-indicator" style="display: none;">▼</span>
                             </div>
                         </div>
-                    </section>
-                </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- ✨ NOUVEAU : Onglet Blue Monday (Capteurs IMU) -->
+            <div id="bluemondayTab" class="tab-content">
+                <section class="sensor-section">
+                    <h2>Capteurs IMU</h2>
+                    <div id="sensorContainer">
+                        <!-- Le composant SensorDisplay va injecter son contenu ici -->
+                    </div>
+                </section>
             </div>
 
             <!-- Onglet Sound Control -->

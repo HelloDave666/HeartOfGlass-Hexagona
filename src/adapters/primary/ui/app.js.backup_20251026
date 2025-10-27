@@ -1,9 +1,8 @@
 ﻿// src/adapters/primary/ui/app.js
 // INTÉGRATION : NobleBluetoothAdapter + Système Audio Granulaire + Enregistrement MP3
-// Phase 5 - Refactorisation : TabController + StateManager + SensorUIController + AudioUIController + RecordingController + TimelineController + IMUController
-// Phase 6 - Step 8 : BluetoothOrchestrator
+// Phase 7 - Step 11 : AppBootstrap - app.js simplifié à ~180 lignes
 
-console.log('Heart of Glass - Version avec NobleBluetoothAdapter + Audio Granulaire + MP3 Recording');
+console.log('Heart of Glass - Version avec Architecture Hexagonale Complète');
 
 // ========================================
 // MODE HYBRIDE : Basculement IPC / Direct
@@ -14,20 +13,16 @@ console.log(`[App] Mode: ${USE_IPC_MODE ? 'IPC (Architecture Hexagonale)' : 'DIR
 const path = require('path');
 const projectRoot = process.cwd();
 
-const audioAdapterPath = path.join(projectRoot, 'src', 'adapters', 'secondary', 'audio', 'granular', 'GranularSynthesisAdapter.js');
 const AudioParameters = require(path.join(projectRoot, 'src', 'core', 'domain', 'valueObjects', 'AudioParameters.js'));
 const AudioState = require(path.join(projectRoot, 'src', 'core', 'domain', 'valueObjects', 'AudioState.js'));
-const GranularSynthesisAdapter = require(audioAdapterPath);
-
-const AudioRecorder = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'services', 'AudioRecorder.js'));
-const TabController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'TabController.js'));
 const StateManager = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'services', 'StateManager.js'));
-const SensorUIController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'SensorUIController.js'));
-const AudioUIController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'AudioUIController.js'));
-const RecordingController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'RecordingController.js'));
-const TimelineController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'TimelineController.js'));
-const IMUController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'IMUController.js'));
+const AppBootstrap = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'bootstrap', 'AppBootstrap.js'));
 const BluetoothOrchestrator = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'orchestrators', 'BluetoothOrchestrator.js'));
+const AudioOrchestrator = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'orchestrators', 'AudioOrchestrator.js'));
+
+// ========================================
+// CONFIGURATION
+// ========================================
 
 const SENSOR_CONFIG = {
   leftAddress: 'ce:de:c2:f5:17:be',
@@ -47,16 +42,6 @@ const AUDIO_CONFIG = {
   maxOverlap: 95
 };
 
-const state = new StateManager();
-state.setAudioState(AudioState.createInitial());
-state.setAudioParameters(new AudioParameters(
-  AUDIO_CONFIG.defaultGrainSize,
-  AUDIO_CONFIG.defaultOverlap,
-  AUDIO_CONFIG.defaultWindow
-));
-
-const SMOOTHING_FACTOR = 0.3;
-
 const IMU_MAPPING = {
   velocitySensitivity: 2.0,
   volumeSensitivity: 1.0,
@@ -66,42 +51,29 @@ const IMU_MAPPING = {
   deadZone: 2.0
 };
 
-let tabController = null;
-let sensorUIController = null;
-let audioUIController = null;
-let recordingController = null;
-let timelineController = null;
-let imuController = null;
-let bluetoothOrchestrator = null;
+const SMOOTHING_FACTOR = 0.3;
 
-function setupTabs() {
-  tabController = new TabController();
-  const initialized = tabController.initialize();
-  
-  if (!initialized) {
-    console.error('[App] Echec initialisation TabController');
-  }
-}
+// ========================================
+// ÉTAT ET RÉFÉRENCES
+// ========================================
 
-function setupSensorInterface() {
-  sensorUIController = new SensorUIController({
-    sensors: SENSOR_CONFIG,
-    onScanToggle: () => {
-      if (bluetoothOrchestrator) {
-        bluetoothOrchestrator.toggleScan();
-      }
-    }
-  });
-  
-  const initialized = sensorUIController.initialize('sensorContainer');
-  
-  if (!initialized) {
-    console.error('[App] Échec initialisation SensorUIController');
-  }
-}
+const state = new StateManager();
+state.setAudioState(AudioState.createInitial());
+state.setAudioParameters(new AudioParameters(
+  AUDIO_CONFIG.defaultGrainSize,
+  AUDIO_CONFIG.defaultOverlap,
+  AUDIO_CONFIG.defaultWindow
+));
+
+let controllers = {};
+let orchestrators = {};
+
+// ========================================
+// CALLBACKS
+// ========================================
 
 function updateAngles(position, angles) {
-  sensorUIController.updateAngles(position, angles);
+  controllers.sensorUIController.updateAngles(position, angles);
   
   if (position === 'DROIT') {
     console.log(`[IMU] DROIT - Y: ${angles.y.toFixed(1)}° | IMU enabled: ${state.isIMUToAudioEnabled()} | Playing: ${state.getAudioState().isPlaying}`);
@@ -121,401 +93,13 @@ function updateAngles(position, angles) {
         console.log(`[IMU→Audio] Vitesse angulaire: ${angularVelocity.toFixed(1)}°/s`);
       }
       
-      applyIMUToAudio(position, angles, angularVelocity);
+      if (orchestrators.audio) {
+        orchestrators.audio.applyIMUToAudio(position, angles, angularVelocity);
+      }
     }
     
     state.updateLastAngles(side, angles);
   }
-}
-
-// ========================================
-// AUDIO UI - REFACTORISÉ AVEC AudioUIController
-// ========================================
-
-function setupAudioInterface() {
-  console.log('[Audio] Configuration interface audio...');
-  
-  audioUIController = new AudioUIController({
-    audioConfig: AUDIO_CONFIG,
-    onFileSelect: handleFileSelect,
-    onPlayPauseToggle: togglePlayPause,
-    onTimelineClick: handleTimelineClick,
-    onGrainSizeChange: handleGrainSizeChange,
-    onOverlapChange: handleOverlapChange,
-    onWindowChange: handleWindowChange,
-    onIMUToggle: handleIMUToggle,
-    onRecordToggle: toggleRecording
-  });
-  
-  const initialized = audioUIController.initialize();
-  
-  if (!initialized) {
-    console.error('[App] Échec initialisation AudioUIController');
-    return;
-  }
-  
-  // Mise à jour initiale de l'interface
-  updateAudioUI();
-  
-  console.log('[Audio] Interface audio configurée');
-}
-
-function updateAudioUI() {
-  audioUIController.updateUI({
-    audioState: state.getAudioState(),
-    currentFile: state.getCurrentAudioFile(),
-    isRecording: state.getIsRecording()
-  });
-}
-
-// ========================================
-// RECORDING UI - REFACTORISÉ AVEC RecordingController
-// ========================================
-
-function setupRecordingInterface() {
-  console.log('[Recording] Configuration interface enregistrement...');
-  
-  recordingController = new RecordingController({
-    onRecordingStart: () => {
-      console.log('[App] Callback: Enregistrement démarré');
-      state.setIsRecording(true);
-      updateAudioUI();
-    },
-    onRecordingStop: (blob) => {
-      console.log('[App] Callback: Enregistrement arrêté');
-      state.setIsRecording(false);
-      updateAudioUI();
-    },
-    onError: (error) => {
-      console.error('[App] Erreur enregistrement:', error);
-      alert('Erreur lors de l\'enregistrement: ' + error.message);
-      state.setIsRecording(false);
-      updateAudioUI();
-    }
-  });
-  
-  const initialized = recordingController.initialize();
-  
-  if (!initialized) {
-    console.error('[App] Échec initialisation RecordingController');
-    return;
-  }
-  
-  console.log('[Recording] Interface enregistrement configurée');
-}
-
-// ========================================
-// TIMELINE UI - REFACTORISÉ AVEC TimelineController
-// ========================================
-
-function setupTimelineInterface() {
-  console.log('[Timeline] Configuration interface timeline...');
-  
-  timelineController = new TimelineController({
-    updateFrequency: 100, // Mise à jour toutes les 100ms
-    onPositionUpdate: (currentPosition) => {
-      // Mise à jour de l'état avec la nouvelle position
-      state.setAudioState(state.getAudioState().with({ currentPosition }));
-      updateAudioUI();
-    },
-    onPlaybackEnd: () => {
-      console.log('[App] Callback: Fin de lecture');
-      stopAudio();
-    }
-  });
-  
-  const initialized = timelineController.initialize();
-  
-  if (!initialized) {
-    console.error('[App] Échec initialisation TimelineController');
-    return;
-  }
-  
-  console.log('[Timeline] Interface timeline configurée');
-}
-
-// ========================================
-// IMU CONTROL - REFACTORISÉ AVEC IMUController
-// ========================================
-
-function setupIMUInterface() {
-  console.log('[IMU] Configuration interface IMU...');
-  
-  imuController = new IMUController({
-    velocitySensitivity: IMU_MAPPING.velocitySensitivity,
-    volumeSensitivity: IMU_MAPPING.volumeSensitivity,
-    minPlaybackRate: IMU_MAPPING.minPlaybackRate,
-    maxPlaybackRate: IMU_MAPPING.maxPlaybackRate,
-    volumeAngleRange: IMU_MAPPING.volumeAngleRange,
-    deadZone: IMU_MAPPING.deadZone,
-    smoothingFactor: SMOOTHING_FACTOR,
-    onSpeedUpdate: (rate, direction, inDeadzone) => {
-      audioUIController.updateSpeedDisplay(rate, direction, inDeadzone);
-    },
-    onVolumeUpdate: (volume) => {
-      state.setAudioState(state.getAudioState().with({ volume }));
-      audioUIController.updateVolumeDisplay(state.getAudioState());
-    }
-  });
-  
-  const initialized = imuController.initialize();
-  
-  if (!initialized) {
-    console.error('[App] Échec initialisation IMUController');
-    return;
-  }
-  
-  console.log('[IMU] Interface IMU configurée');
-}
-
-// ========================================
-// AUDIO SYSTEM
-// ========================================
-
-async function initializeAudioSystem() {
-  console.log('[Audio] Initialisation système audio...');
-  
-  try {
-    const audioSystem = new GranularSynthesisAdapter();
-    state.setAudioSystem(audioSystem);
-    
-    await state.getAudioSystem().initialize();
-    
-    state.getAudioSystem().setGranularParams({
-      grainSize: state.getAudioParameters().grainSize,
-      overlap: state.getAudioParameters().overlap,
-      windowType: state.getAudioParameters().windowType
-    });
-    
-    state.getAudioSystem().setVolume(state.getAudioState().volume);
-    
-    console.log('[Audio] Système audio initialisé');
-    return true;
-    
-  } catch (error) {
-    console.error('[Audio] Erreur initialisation:', error);
-    return false;
-  }
-}
-
-async function handleFileSelect(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  
-  console.log('[Audio] Fichier sélectionné:', file.name);
-  
-  try {
-    if (state.getAudioState().isPlaying) {
-      await stopAudio();
-    }
-    
-    const fileBuffer = await file.arrayBuffer();
-    const audioContext = state.getAudioSystem().audioContext;
-    const audioBuffer = await audioContext.decodeAudioData(fileBuffer);
-    
-    state.getAudioSystem().audioBuffer = audioBuffer;
-    state.getAudioSystem().currentPosition = 0;
-    
-    state.setCurrentAudioFile(file);
-    state.setAudioState(state.getAudioState().with({
-      duration: audioBuffer.duration,
-      currentPosition: 0
-    }));
-    
-    console.log('[Audio] Fichier chargé:', audioBuffer.duration.toFixed(2), 'secondes');
-    
-    updateAudioUI();
-    
-  } catch (error) {
-    console.error('[Audio] Erreur chargement fichier:', error);
-    alert('Erreur lors du chargement du fichier audio');
-  }
-}
-
-async function togglePlayPause() {
-  if (!state.getCurrentAudioFile() || !state.getAudioSystem()) return;
-  
-  try {
-    if (state.getAudioState().isPlaying) {
-      state.getAudioSystem().stopPlayback();
-      state.setAudioState(state.getAudioState().with({ isPlaying: false }));
-      stopTimelineUpdates();
-      console.log('[Audio] Arrêt');
-    } else {
-      state.getAudioSystem().startPlayback();
-      state.setAudioState(state.getAudioState().with({ isPlaying: true }));
-      startTimelineUpdates();
-      console.log('[Audio] Lecture - État: ', state.getAudioState().isPlaying);
-    }
-    
-    updateAudioUI();
-    
-  } catch (error) {
-    console.error('[Audio] Erreur play/pause:', error);
-  }
-}
-
-async function stopAudio() {
-  if (!state.getAudioSystem()) return;
-  
-  try {
-    state.getAudioSystem().stopPlayback();
-    state.setAudioState(state.getAudioState().with({
-      isPlaying: false,
-      currentPosition: 0
-    }));
-    
-    stopTimelineUpdates();
-    updateAudioUI();
-    
-    console.log('[Audio] Stop');
-    
-  } catch (error) {
-    console.error('[Audio] Erreur stop:', error);
-  }
-}
-
-function handleTimelineClick(event) {
-  if (!state.getCurrentAudioFile() || !state.getAudioSystem()) return;
-  
-  const percent = audioUIController.getTimelineClickPosition(event);
-  const newPosition = (percent / 100) * state.getAudioState().duration;
-  
-  state.getAudioSystem().setPlaybackPosition(newPosition);
-  state.setAudioState(state.getAudioState().with({ currentPosition: newPosition }));
-  
-  updateAudioUI();
-  console.log(`[Audio] Seek to ${newPosition.toFixed(2)}s (${percent.toFixed(1)}%)`);
-}
-
-function handleGrainSizeChange(event) {
-  let grainSize = parseInt(event.target.value);
-  
-  if (grainSize < 10) grainSize = 10;
-  if (grainSize > 500) grainSize = 500;
-  
-  audioUIController.updateGrainSizeDisplay(grainSize);
-  
-  try {
-    state.setAudioParameters(state.getAudioParameters().with({ grainSize }));
-    
-    if (state.getAudioSystem()) {
-      state.getAudioSystem().setGranularParams({ grainSize });
-    }
-    
-    console.log('[Audio] Grain size:', grainSize, 'ms');
-    
-  } catch (error) {
-    console.error('[Audio] Erreur grain size:', error);
-  }
-}
-
-function handleOverlapChange(event) {
-  let overlap = parseInt(event.target.value);
-  
-  if (isNaN(overlap)) {
-    console.warn('[Audio] Valeur overlap invalide:', event.target.value);
-    overlap = AUDIO_CONFIG.defaultOverlap;
-  }
-  
-  if (overlap < 0) overlap = 0;
-  if (overlap > 95) overlap = 95;
-  
-  audioUIController.updateOverlapDisplay(overlap);
-  
-  try {
-    state.setAudioParameters(state.getAudioParameters().with({ overlap }));
-    
-    if (state.getAudioSystem()) {
-      state.getAudioSystem().setGranularParams({ overlap });
-    }
-    
-    console.log('[Audio] Overlap:', overlap, '%');
-    
-  } catch (error) {
-    console.error('[Audio] Erreur overlap:', error);
-  }
-}
-
-function handleWindowChange(event) {
-  const windowType = event.target.value;
-  
-  try {
-    state.setAudioParameters(state.getAudioParameters().with({ windowType }));
-    
-    if (state.getAudioSystem()) {
-      state.getAudioSystem().setGranularParams({ windowType });
-    }
-    
-    console.log('[Audio] Window type:', windowType);
-    
-  } catch (error) {
-    console.error('[Audio] Erreur window type:', error);
-  }
-}
-
-function handleIMUToggle(event) {
-  const enabled = event.target.checked;
-  state.setIMUToAudioEnabled(enabled);
-  
-  imuController.setEnabled(enabled, state.getAudioSystem());
-  
-  if (enabled) {
-    const now = Date.now();
-    state.getLastAngles().left.timestamp = now;
-    state.getLastAngles().right.timestamp = now;
-  }
-}
-
-async function toggleRecording() {
-  // Vérifications préalables
-  const canRecordCheck = recordingController.canRecord(
-    state.getAudioSystem(), 
-    state.getAudioState().isPlaying
-  );
-  
-  if (!canRecordCheck.canRecord) {
-    console.warn('[Recorder]', canRecordCheck.reason);
-    return;
-  }
-
-  try {
-    await recordingController.toggleRecording(
-      state.getAudioSystem(),
-      state.getAudioRecorder() || new AudioRecorder()
-    );
-    
-    // Synchroniser l'état local avec le controller
-    state.setIsRecording(recordingController.getRecordingState());
-    
-    // Si on vient de démarrer et que le recorder n'existait pas encore
-    if (recordingController.getRecordingState() && !state.getAudioRecorder()) {
-      state.setAudioRecorder(recordingController.audioRecorder);
-    }
-    
-    updateAudioUI();
-    
-  } catch (error) {
-    console.error('[Recorder] Erreur toggle:', error);
-    alert('Erreur lors de l\'enregistrement: ' + error.message);
-  }
-}
-
-function startTimelineUpdates() {
-  timelineController.startUpdates(state.getAudioSystem(), state.getAudioState());
-}
-
-function stopTimelineUpdates() {
-  timelineController.stopUpdates();
-}
-
-function applyIMUToAudio(position, angles, angularVelocity) {
-  const audioUI = audioUIController.getUIReferences();
-  if (!audioUI.imuSensitivity || !state.getAudioSystem()) return;
-  
-  const sensitivity = parseFloat(audioUI.imuSensitivity.value);
-  
-  imuController.applyToAudio(position, angles, angularVelocity, state.getAudioSystem(), sensitivity);
 }
 
 // ========================================
@@ -525,29 +109,165 @@ function applyIMUToAudio(position, angles, angularVelocity) {
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('[App] Initialisation application...');
   
-  // Setup des contrôleurs UI
-  setupTabs();
-  setupSensorInterface();
-  setupAudioInterface();
-  setupRecordingInterface();
-  setupTimelineInterface();
-  setupIMUInterface();
+  // Bootstrap tous les contrôleurs via AppBootstrap
+  controllers = await AppBootstrap.bootstrap({
+    state,
+    SENSOR_CONFIG,
+    AUDIO_CONFIG,
+    IMU_MAPPING,
+    callbacks: {
+      onScanToggle: () => {
+        if (orchestrators.bluetooth) {
+          orchestrators.bluetooth.toggleScan();
+        }
+      },
+      audioCallbacks: {
+        onFileSelect: async (event) => {
+          const file = event.target.files[0];
+          if (file && orchestrators.audio) {
+            try {
+              await orchestrators.audio.loadFile(file);
+            } catch (error) {
+              alert(error.message);
+            }
+          }
+        },
+        onPlayPauseToggle: () => {
+          if (orchestrators.audio) {
+            orchestrators.audio.togglePlayPause();
+          }
+        },
+        onTimelineClick: (event) => {
+          if (orchestrators.audio && controllers.audioUIController) {
+            const percent = controllers.audioUIController.getTimelineClickPosition(event);
+            orchestrators.audio.seek(percent);
+          }
+        },
+        onGrainSizeChange: (event) => {
+          if (orchestrators.audio) {
+            orchestrators.audio.setGrainSize(event.target.value);
+          }
+        },
+        onOverlapChange: (event) => {
+          if (orchestrators.audio) {
+            orchestrators.audio.setOverlap(event.target.value);
+          }
+        },
+        onWindowChange: (event) => {
+          if (orchestrators.audio) {
+            orchestrators.audio.setWindowType(event.target.value);
+          }
+        },
+        onIMUToggle: (event) => {
+          if (orchestrators.audio) {
+            orchestrators.audio.toggleIMU(event.target.checked);
+          }
+        },
+        onRecordToggle: async () => {
+          if (orchestrators.audio) {
+            try {
+              await orchestrators.audio.toggleRecording();
+            } catch (error) {
+              alert('Erreur lors de l\'enregistrement: ' + error.message);
+            }
+          }
+        }
+      },
+      recordingCallbacks: {
+        onRecordingStart: () => {
+          console.log('[App] Callback: Enregistrement démarré');
+          state.setIsRecording(true);
+          if (controllers.audioUIController) {
+            controllers.audioUIController.updateUI({
+              audioState: state.getAudioState(),
+              currentFile: state.getCurrentAudioFile(),
+              isRecording: state.getIsRecording()
+            });
+          }
+        },
+        onRecordingStop: (blob) => {
+          console.log('[App] Callback: Enregistrement arrêté');
+          state.setIsRecording(false);
+          if (controllers.audioUIController) {
+            controllers.audioUIController.updateUI({
+              audioState: state.getAudioState(),
+              currentFile: state.getCurrentAudioFile(),
+              isRecording: state.getIsRecording()
+            });
+          }
+        },
+        onError: (error) => {
+          console.error('[App] Erreur enregistrement:', error);
+          alert('Erreur lors de l\'enregistrement: ' + error.message);
+          state.setIsRecording(false);
+          if (controllers.audioUIController) {
+            controllers.audioUIController.updateUI({
+              audioState: state.getAudioState(),
+              currentFile: state.getCurrentAudioFile(),
+              isRecording: state.getIsRecording()
+            });
+          }
+        }
+      },
+      timelineCallbacks: {
+        onPositionUpdate: (currentPosition) => {
+          state.setAudioState(state.getAudioState().with({ currentPosition }));
+          if (controllers.audioUIController) {
+            controllers.audioUIController.updateUI({
+              audioState: state.getAudioState(),
+              currentFile: state.getCurrentAudioFile(),
+              isRecording: state.getIsRecording()
+            });
+          }
+        },
+        onPlaybackEnd: () => {
+          console.log('[App] Callback: Fin de lecture');
+          if (orchestrators.audio) {
+            orchestrators.audio.stop();
+          }
+        }
+      },
+      imuCallbacks: {
+        onSpeedUpdate: (rate, direction, inDeadzone) => {
+          if (controllers.audioUIController) {
+            controllers.audioUIController.updateSpeedDisplay(rate, direction, inDeadzone);
+          }
+        },
+        onVolumeUpdate: (volume) => {
+          state.setAudioState(state.getAudioState().with({ volume }));
+          if (controllers.audioUIController) {
+            controllers.audioUIController.updateVolumeDisplay(state.getAudioState());
+          }
+        }
+      }
+    }
+  });
   
   // Initialisation BluetoothOrchestrator
-  bluetoothOrchestrator = new BluetoothOrchestrator({
+  orchestrators.bluetooth = new BluetoothOrchestrator({
     state,
-    sensorUIController,
+    sensorUIController: controllers.sensorUIController,
     sensorConfig: SENSOR_CONFIG,
     useIPCMode: USE_IPC_MODE,
     onAnglesUpdate: updateAngles
   });
   
-  const bluetoothOk = await bluetoothOrchestrator.initialize();
-  const audioOk = await initializeAudioSystem();
+  // Initialisation AudioOrchestrator
+  orchestrators.audio = new AudioOrchestrator({
+    state,
+    audioUIController: controllers.audioUIController,
+    timelineController: controllers.timelineController,
+    recordingController: controllers.recordingController,
+    imuController: controllers.imuController,
+    audioConfig: AUDIO_CONFIG
+  });
+  
+  const bluetoothOk = await orchestrators.bluetooth.initialize();
+  const audioOk = await orchestrators.audio.initialize();
   
   if (bluetoothOk) {
     console.log('[App] Bluetooth prêt');
-    sensorUIController.updateStatus('Cliquez sur "Rechercher les capteurs" pour commencer');
+    controllers.sensorUIController.updateStatus('Cliquez sur "Rechercher les capteurs" pour commencer');
   } else {
     console.error('[App] Bluetooth échoué');
   }
@@ -558,7 +278,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('[Audio] Audio échoué');
   }
   
-  console.log('[App] Application prête');
+  console.log('[App] ✓ Application prête');
 });
 
 // ========================================
@@ -571,53 +291,23 @@ if (window.require) {
   ipcRenderer.on('app-closing', async () => {
     console.log('[App] Fermeture - Nettoyage...');
     
-    // Cleanup BluetoothOrchestrator
-    if (bluetoothOrchestrator) {
-      await bluetoothOrchestrator.cleanup();
-      bluetoothOrchestrator.dispose();
-      bluetoothOrchestrator = null;
+    // Cleanup orchestrateurs
+    if (orchestrators.bluetooth) {
+      await orchestrators.bluetooth.cleanup();
+      orchestrators.bluetooth.dispose();
     }
     
-    if (timelineController) {
-      timelineController.dispose();
-      timelineController = null;
+    if (orchestrators.audio) {
+      await orchestrators.audio.cleanup();
+      orchestrators.audio.dispose();
     }
     
-    stopTimelineUpdates();
-    
-    if (state.getAudioRecorder()) {
-      state.getAudioRecorder().dispose();
-      state.setAudioRecorder(null);
-    }
-    
-    if (state.getAudioSystem()) {
-      state.getAudioSystem().dispose();
-    }
-    
-    if (tabController) {
-      tabController.dispose();
-      tabController = null;
-    }
-    
-    if (sensorUIController) {
-      sensorUIController.dispose();
-      sensorUIController = null;
-    }
-    
-    if (audioUIController) {
-      audioUIController.dispose();
-      audioUIController = null;
-    }
-    
-    if (recordingController) {
-      recordingController.dispose();
-      recordingController = null;
-    }
-    
-    if (imuController) {
-      imuController.dispose();
-      imuController = null;
-    }
+    // Cleanup contrôleurs
+    Object.values(controllers).forEach(controller => {
+      if (controller && controller.dispose) {
+        controller.dispose();
+      }
+    });
     
     setTimeout(() => {
       ipcRenderer.send('cleanup-complete');
