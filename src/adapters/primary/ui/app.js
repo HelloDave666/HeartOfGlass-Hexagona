@@ -1,6 +1,6 @@
 ﻿// src/adapters/primary/ui/app.js
 // INTÉGRATION : NobleBluetoothAdapter + Système Audio Granulaire + Enregistrement MP3
-// Phase 5 - Refactorisation : TabController + StateManager + SensorUIController + AudioUIController + RecordingController
+// Phase 5 - Refactorisation : TabController + StateManager + SensorUIController + AudioUIController + RecordingController + TimelineController + IMUController
 
 console.log('Heart of Glass - Version avec NobleBluetoothAdapter + Audio Granulaire + MP3 Recording');
 
@@ -39,6 +39,8 @@ const StateManager = require(path.join(projectRoot, 'src', 'adapters', 'primary'
 const SensorUIController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'SensorUIController.js'));
 const AudioUIController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'AudioUIController.js'));
 const RecordingController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'RecordingController.js'));
+const TimelineController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'TimelineController.js'));
+const IMUController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'IMUController.js'));
 
 const SENSOR_CONFIG = {
   leftAddress: 'ce:de:c2:f5:17:be',
@@ -81,6 +83,8 @@ let tabController = null;
 let sensorUIController = null;
 let audioUIController = null;
 let recordingController = null;
+let timelineController = null;
+let imuController = null;
 
 function getSensorInfo(address) {
   const addrLower = address.toLowerCase();
@@ -223,6 +227,70 @@ function setupRecordingInterface() {
   }
   
   console.log('[Recording] Interface enregistrement configurée');
+}
+
+// ========================================
+// TIMELINE UI - REFACTORISÉ AVEC TimelineController
+// ========================================
+
+function setupTimelineInterface() {
+  console.log('[Timeline] Configuration interface timeline...');
+  
+  timelineController = new TimelineController({
+    updateFrequency: 100, // Mise à jour toutes les 100ms
+    onPositionUpdate: (currentPosition) => {
+      // Mise à jour de l'état avec la nouvelle position
+      state.setAudioState(state.getAudioState().with({ currentPosition }));
+      updateAudioUI();
+    },
+    onPlaybackEnd: () => {
+      console.log('[App] Callback: Fin de lecture');
+      stopAudio();
+    }
+  });
+  
+  const initialized = timelineController.initialize();
+  
+  if (!initialized) {
+    console.error('[App] Échec initialisation TimelineController');
+    return;
+  }
+  
+  console.log('[Timeline] Interface timeline configurée');
+}
+
+// ========================================
+// IMU CONTROL - REFACTORISÉ AVEC IMUController
+// ========================================
+
+function setupIMUInterface() {
+  console.log('[IMU] Configuration interface IMU...');
+  
+  imuController = new IMUController({
+    velocitySensitivity: IMU_MAPPING.velocitySensitivity,
+    volumeSensitivity: IMU_MAPPING.volumeSensitivity,
+    minPlaybackRate: IMU_MAPPING.minPlaybackRate,
+    maxPlaybackRate: IMU_MAPPING.maxPlaybackRate,
+    volumeAngleRange: IMU_MAPPING.volumeAngleRange,
+    deadZone: IMU_MAPPING.deadZone,
+    smoothingFactor: SMOOTHING_FACTOR,
+    onSpeedUpdate: (rate, direction, inDeadzone) => {
+      audioUIController.updateSpeedDisplay(rate, direction, inDeadzone);
+    },
+    onVolumeUpdate: (volume) => {
+      state.setAudioState(state.getAudioState().with({ volume }));
+      audioUIController.updateVolumeDisplay(state.getAudioState());
+    }
+  });
+  
+  const initialized = imuController.initialize();
+  
+  if (!initialized) {
+    console.error('[App] Échec initialisation IMUController');
+    return;
+  }
+  
+  console.log('[IMU] Interface IMU configurée');
 }
 
 // ========================================
@@ -786,20 +854,15 @@ function handleWindowChange(event) {
 }
 
 function handleIMUToggle(event) {
-  state.setIMUToAudioEnabled(event.target.checked);
+  const enabled = event.target.checked;
+  state.setIMUToAudioEnabled(enabled);
   
-  if (state.isIMUToAudioEnabled()) {
+  imuController.setEnabled(enabled, state.getAudioSystem());
+  
+  if (enabled) {
     const now = Date.now();
     state.getLastAngles().left.timestamp = now;
     state.getLastAngles().right.timestamp = now;
-    console.log('[Audio] Contrôle IMU vinyle ACTIVÉ');
-    console.log('[Audio] Main DROITE = Vitesse (rotation Pitch Y)');
-    console.log('[Audio] Main GAUCHE = Volume (angle Pitch Y)');
-  } else {
-    if (state.getAudioSystem()) {
-      state.getAudioSystem().setPlaybackRate(1.0, 1);
-    }
-    console.log('[Audio] Contrôle IMU désactivé');
   }
 }
 
@@ -838,25 +901,11 @@ async function toggleRecording() {
 }
 
 function startTimelineUpdates() {
-  stopTimelineUpdates();
-  
-  const interval = setInterval(() => {
-    if (state.getAudioSystem() && state.getAudioState().isPlaying) {
-      const currentPos = state.getAudioSystem().getPlaybackPosition();
-      state.setAudioState(state.getAudioState().with({ currentPosition: currentPos }));
-      updateAudioUI();
-      
-      if (currentPos >= state.getAudioState().duration) {
-        stopAudio();
-      }
-    }
-  }, 100);
-  
-  state.setTimelineUpdateInterval(interval);
+  timelineController.startUpdates(state.getAudioSystem(), state.getAudioState());
 }
 
 function stopTimelineUpdates() {
-  state.clearTimelineUpdateInterval();
+  timelineController.stopUpdates();
 }
 
 function applyIMUToAudio(position, angles, angularVelocity) {
@@ -865,61 +914,7 @@ function applyIMUToAudio(position, angles, angularVelocity) {
   
   const sensitivity = parseFloat(audioUI.imuSensitivity.value);
   
-  if (position === 'DROIT') {
-    const angle = angles.y;
-    
-    let playbackRate;
-    let direction;
-    
-    if (Math.abs(angle) <= IMU_MAPPING.deadZone) {
-      playbackRate = 1.0;
-      direction = 1;
-      
-      state.setSmoothedPlaybackRate(1.0);
-      state.getAudioSystem().setPlaybackRate(1.0, 1);
-      
-      audioUIController.updateSpeedDisplay(1.0, 1, true);
-      
-    } else if (angle > IMU_MAPPING.deadZone) {
-      const normalizedAngle = Math.min(angle - IMU_MAPPING.deadZone, 90) / 90;
-      playbackRate = 1.0 + (normalizedAngle * sensitivity);
-      direction = 1;
-      
-      playbackRate = Math.max(0.5, Math.min(3.0, playbackRate));
-      
-      const newRate = state.getSmoothedPlaybackRate() + (playbackRate - state.getSmoothedPlaybackRate()) * SMOOTHING_FACTOR;
-      state.setSmoothedPlaybackRate(newRate);
-      
-      state.getAudioSystem().setPlaybackRate(state.getSmoothedPlaybackRate(), direction);
-      
-      audioUIController.updateSpeedDisplay(state.getSmoothedPlaybackRate(), direction, false);
-      
-    } else {
-      const normalizedAngle = Math.min(Math.abs(angle) - IMU_MAPPING.deadZone, 90) / 90;
-      playbackRate = 1.0 + (normalizedAngle * sensitivity);
-      direction = -1;
-      
-      playbackRate = Math.max(0.5, Math.min(3.0, playbackRate));
-      
-      const newRate = state.getSmoothedPlaybackRate() + (playbackRate - state.getSmoothedPlaybackRate()) * SMOOTHING_FACTOR;
-      state.setSmoothedPlaybackRate(newRate);
-      
-      state.getAudioSystem().setPlaybackRate(state.getSmoothedPlaybackRate(), direction);
-      
-      audioUIController.updateSpeedDisplay(state.getSmoothedPlaybackRate(), direction, false);
-    }
-  }
-  
-  else if (position === 'GAUCHE') {
-    const normalizedAngle = Math.max(-45, Math.min(45, angles.y));
-    const volumeRatio = (normalizedAngle + 45) / 90;
-    const volume = volumeRatio * IMU_MAPPING.volumeSensitivity;
-    
-    state.getAudioSystem().setVolume(volume);
-    state.setAudioState(state.getAudioState().with({ volume }));
-    
-    audioUIController.updateVolumeDisplay(state.getAudioState());
-  }
+  imuController.applyToAudio(position, angles, angularVelocity, state.getAudioSystem(), sensitivity);
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -929,6 +924,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupSensorInterface();
   setupAudioInterface();
   setupRecordingInterface();
+  setupTimelineInterface();
+  setupIMUInterface();
   setupIPCListeners();
   
   const bluetoothOk = await initializeBluetooth();
@@ -962,6 +959,11 @@ if (window.require) {
       await state.getBluetoothAdapter().cleanup();
     }
     
+    if (timelineController) {
+      timelineController.dispose();
+      timelineController = null;
+    }
+    
     stopTimelineUpdates();
     
     if (state.getAudioRecorder()) {
@@ -991,6 +993,11 @@ if (window.require) {
     if (recordingController) {
       recordingController.dispose();
       recordingController = null;
+    }
+    
+    if (imuController) {
+      imuController.dispose();
+      imuController = null;
     }
     
     setTimeout(() => {
