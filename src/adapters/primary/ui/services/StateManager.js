@@ -1,4 +1,8 @@
 // src/adapters/primary/ui/services/StateManager.js
+// src/adapters/primary/ui/services/StateManager.js
+// NOTE: Service cross-cutting qui centralise l'état de l'application
+// Utilisé par tous les contrôleurs et orchestrateurs
+// Alternative possible: Déplacer vers src/shared/state/ dans une future refactorisation
 
 class StateManager {
   constructor() {
