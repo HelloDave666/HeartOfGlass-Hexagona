@@ -22,17 +22,25 @@ class SensorHandler {
   }
 
   setupHandlers() {
+    // CORRECTION : Utiliser ipcMain.on() au lieu de ipcMain.handle()
+    // pour compatibilité avec ipcRenderer.send()
+    
     // Scan des capteurs avec gestion d'erreur
-    ipcMain.handle('sensor:scan', async () => {
-      console.log('[IPC] Demande de scan des capteurs');
+    ipcMain.on('sensor:scan', async (event, data) => {
+      console.log('[IPC] sensor:scan reçu avec data:', data);
+      
+      // Envoyer confirmation immédiate
+      event.sender.send('scan:started');
+      
       try {
         // Vérifier d'abord si Bluetooth est disponible
         const availability = await this.sensorService.checkBluetoothAvailability();
         if (!availability.available) {
-          return { 
-            success: false, 
+          console.error('[IPC] Bluetooth non disponible:', availability.error);
+          event.sender.send('scan:error', { 
             error: availability.error || 'Bluetooth non disponible'
-          };
+          });
+          return;
         }
         
         // Configurer le gestionnaire de découverte si pas déjà fait
@@ -41,28 +49,29 @@ class SensorHandler {
         }
         
         await this.sensorService.startScanning();
-        return { success: true };
+        console.log('[IPC] Scan démarré avec succès');
+        
       } catch (error) {
         console.error('[IPC] Erreur scan:', error);
-        return { 
-          success: false, 
-          error: error.message 
-        };
+        event.sender.send('scan:error', { error: error.message });
       }
     });
 
     // Arrêt du scan
-    ipcMain.handle('sensor:stop-scan', async () => {
-      console.log('[IPC] Arrêt du scan');
+    ipcMain.on('sensor:stop-scan', async (event) => {
+      console.log('[IPC] sensor:stop-scan reçu');
+      
       try {
         await this.sensorService.stopScanning();
-        return { success: true };
+        event.sender.send('scan:stopped');
+        console.log('[IPC] Scan arrêté avec succès');
       } catch (error) {
-        return { success: false, error: error.message };
+        console.error('[IPC] Erreur arrêt scan:', error);
+        event.sender.send('scan:error', { error: error.message });
       }
     });
 
-    // État des capteurs
+    // État des capteurs - Garder handle() car utilisé avec invoke()
     ipcMain.handle('sensor:get-status', async () => {
       const sensors = await this.sensorRepository.findAll();
       const bothActive = await this.sensorRepository.areBothSensorsActive();
@@ -75,7 +84,7 @@ class SensorHandler {
       };
     });
 
-    // Configuration des capteurs
+    // Configuration des capteurs - Garder handle() car utilisé avec invoke()
     ipcMain.handle('sensor:update-config', async (event, config) => {
       this.config.leftAddress = config.leftAddress;
       this.config.rightAddress = config.rightAddress;
@@ -121,7 +130,6 @@ class SensorHandler {
   const eventsToForward = [
     Events.SENSOR_CONNECTED,
     Events.SENSOR_DISCONNECTED,
-    Events.SENSOR_DATA,
     Events.SENSOR_BATTERY,
     Events.SENSORS_READY
   ];
@@ -133,6 +141,16 @@ class SensorHandler {
       BrowserWindow.getAllWindows().forEach(window => {
         window.webContents.send(eventName, data);
       });
+    });
+  });
+
+  // SENSOR_DATA : Traitement spécial pour inclure TOUTES les données
+  this.eventBus.on(Events.SENSOR_DATA, (data) => {
+    // data contient déjà : { address, angles, gyro, accel, mag, ... }
+    // On forward TOUT au renderer pour les exercices
+    const { BrowserWindow } = require('electron');
+    BrowserWindow.getAllWindows().forEach(window => {
+      window.webContents.send(Events.SENSOR_DATA, data);
     });
   });
 

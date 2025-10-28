@@ -4,6 +4,19 @@
  * Chemin: src/core/domain/exercises/glass/HeartOfFrostExercise.js
  */
 
+// ========================================
+// IMPORTS
+// ========================================
+const path = require('path');
+const projectRoot = process.cwd();
+
+const Exercise = require(path.join(projectRoot, 'src', 'core', 'domain', 'exercises', 'base', 'Exercise.js'));
+const ExerciseLevel = require(path.join(projectRoot, 'src', 'core', 'domain', 'exercises', 'base', 'ExerciseLevel.js'));
+
+// ========================================
+// TYPES JSDoc
+// ========================================
+
 /**
  * @typedef {Object} ExerciseFeedback
  * @property {'success'|'warning'|'error'|'info'} type - Type de feedback
@@ -22,6 +35,10 @@
  * @property {ExerciseFeedback} feedback - Feedback visuel
  * @property {boolean} isCompleted - Exercice complété
  */
+
+// ========================================
+// CLASSE PRINCIPALE
+// ========================================
 
 /**
  * Exercice "Cœur de givre" - Rotation régulière sur l'axe Y
@@ -353,6 +370,10 @@ class HeartOfFrostExercise extends Exercise {
         };
     }
 }
+
+// ========================================
+// EXPORT
+// ========================================
 
 // Export pour Node.js ET browser
 if (typeof module !== 'undefined' && module.exports) {

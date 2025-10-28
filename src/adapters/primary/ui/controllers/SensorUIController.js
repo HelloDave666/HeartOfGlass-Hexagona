@@ -313,6 +313,88 @@ class SensorUIController {
     return states;
   }
 
+  // ========================================
+  // NOUVELLES MÉTHODES POUR BluetoothOrchestrator
+  // ========================================
+
+  /**
+   * Ajoute un capteur découvert à l'interface
+   * @param {string} address - Adresse du capteur
+   * @param {string} position - 'GAUCHE' ou 'DROIT'
+   * @param {string} color - Couleur d'affichage
+   * @public
+   */
+  addSensor(address, position, color) {
+    console.log(`[SensorUIController] Ajout capteur: ${position} (${address})`);
+    // Les affichages sont déjà créés par createDeviceDisplays()
+    // On met juste à jour l'adresse
+    const display = this.deviceListElement.querySelector(
+      `[data-position="${position}"]`
+    );
+    
+    if (display) {
+      display.querySelector('.address').textContent = `Adresse: ${address}`;
+    }
+  }
+
+  /**
+   * Met à jour le statut d'un capteur
+   * @param {string} address - Adresse du capteur
+   * @param {string} position - 'GAUCHE' ou 'DROIT'
+   * @param {string} status - 'connecting' | 'connected' | 'disconnected' | 'error'
+   * @public
+   */
+  updateSensorStatus(address, position, status) {
+    console.log(`[SensorUIController] Statut ${position}: ${status}`);
+    
+    const display = this.deviceListElement.querySelector(
+      `[data-position="${position}"]`
+    );
+    
+    if (!display) return;
+    
+    const indicator = display.querySelector('.status-indicator');
+    const stateElement = display.querySelector('.state');
+    
+    switch (status) {
+      case 'connecting':
+        indicator.className = 'status-indicator status-connecting';
+        stateElement.textContent = 'État: connexion...';
+        break;
+        
+      case 'connected':
+        indicator.className = 'status-indicator status-connected';
+        stateElement.textContent = 'État: connecté';
+        display.querySelector('.address').textContent = `Adresse: ${address}`;
+        break;
+        
+      case 'disconnected':
+        indicator.className = 'status-indicator status-disconnected';
+        stateElement.textContent = 'État: déconnecté';
+        display.querySelector('.address').textContent = 'Adresse: --';
+        display.querySelector('.rssi').textContent = 'Signal: --';
+        this.updateAngles(position, { x: null, y: null, z: null });
+        break;
+        
+      case 'error':
+        indicator.className = 'status-indicator status-error';
+        stateElement.textContent = 'État: erreur';
+        break;
+        
+      default:
+        console.warn(`[SensorUIController] Statut inconnu: ${status}`);
+    }
+  }
+
+  /**
+   * Efface tous les capteurs découverts (réinitialise l'affichage)
+   * @public
+   */
+  clearSensors() {
+    console.log('[SensorUIController] Effacement capteurs');
+    this.resetAll();
+  }
+
   /**
    * Nettoie les ressources
    * @public

@@ -340,6 +340,18 @@ class AudioOrchestrator {
   }
 
   // ========================================
+  // MÉTHODES PUBLIQUES POUR USE CASES
+  // ========================================
+
+  /**
+   * Récupère le service audio pour les use cases
+   * @returns {Object} Instance du système audio (GranularSynthesisAdapter)
+   */
+  getAudioService() {
+    return this.state.getAudioSystem();
+  }
+
+  // ========================================
   // FONCTIONS UTILITAIRES PRIVÉES
   // ========================================
 

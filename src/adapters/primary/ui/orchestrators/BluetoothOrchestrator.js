@@ -1,19 +1,11 @@
+// @ts-nocheck
 // src/adapters/primary/ui/orchestrators/BluetoothOrchestrator.js
-// Phase 6 - Step 8 : Orchestrateur Bluetooth
-// Extrait toute la logique Bluetooth depuis app.js
-// Phase 6 - Step 10 : Utilisation de SensorUtils
+// Phase 6 - Step 10 : Orchestrateur Bluetooth
+// Gère toute la logique Bluetooth (IPC ou Direct) de manière transparente
 
 const path = require('path');
 
 class BluetoothOrchestrator {
-  /**
-   * @param {Object} config
-   * @param {Object} config.state - Gestionnaire d'état
-   * @param {Object} config.sensorUIController - Contrôleur UI capteurs
-   * @param {Object} config.sensorConfig - Configuration capteurs (leftAddress, rightAddress, etc.)
-   * @param {boolean} config.useIPCMode - Mode IPC (true) ou Direct (false)
-   * @param {Function} config.onAnglesUpdate - Callback pour mise à jour angles (position, angles)
-   */
   constructor({ state, sensorUIController, sensorConfig, useIPCMode, onAnglesUpdate }) {
     this.state = state;
     this.sensorUIController = sensorUIController;
@@ -28,115 +20,89 @@ class BluetoothOrchestrator {
     // Chargement de SensorUtils
     const SensorUtils = require(path.join(this.projectRoot, 'src', 'adapters', 'primary', 'ui', 'utils', 'SensorUtils.js'));
     this.SensorUtils = SensorUtils;
+    
+    // NOUVEAU : Callbacks pour les exercices (mode IPC)
+    this.exerciseDataCallbacks = new Map(); // Map<address, callback>
   }
 
-  /**
-   * Initialise le système Bluetooth
-   */
   async initialize() {
-    const modeText = this.useIPCMode ? 'IPC' : 'DIRECT';
-    console.log('[BluetoothOrchestrator] Initialisation (mode ' + modeText + ')...');
+    console.log('[BluetoothOrchestrator] Initialisation...');
     
     try {
-      // Chargement de l'adaptateur selon le mode
-      await this._loadBluetoothAdapter();
-      
-      // Création de l'instance adapter
-      const adapter = new this.bluetoothAdapterClass();
-      this.state.setBluetoothAdapter(adapter);
-      
-      // Vérification disponibilité
-      const availability = await this.state.getBluetoothAdapter().checkBluetoothAvailability();
-      
-      if (!availability.available) {
-        throw new Error(availability.error || 'Bluetooth non disponible');
-      }
-      
-      console.log('[BluetoothOrchestrator] Bluetooth prêt, état:', availability.state);
-      
-      // Configuration des callbacks
-      this.state.getBluetoothAdapter().onDiscover(this._handleDiscovery.bind(this));
-      this.state.getBluetoothAdapter().onStateChange(this._handleStateChange.bind(this));
-      
-      // Configuration IPC si nécessaire
       if (this.useIPCMode) {
-        this._setupIPCListeners();
+        await this._initializeIPCMode();
+      } else {
+        await this._initializeDirectMode();
       }
       
+      console.log('[BluetoothOrchestrator] ✓ Initialisé');
       return true;
       
     } catch (error) {
       console.error('[BluetoothOrchestrator] Erreur initialisation:', error);
-      this.sensorUIController.updateStatus(`Erreur Bluetooth: ${error.message}`);
-      this.sensorUIController.updateScanButton('Bluetooth indisponible', '#e74c3c', false);
       return false;
     }
   }
 
-  /**
-   * Charge la classe d'adaptateur Bluetooth selon le mode
-   * @private
-   */
-  async _loadBluetoothAdapter() {
-    if (this.useIPCMode) {
-      const SensorIPCClient = require(path.join(this.projectRoot, 'src', 'adapters', 'primary', 'ui', 'services', 'SensorIPCClient.js'));
-      this.bluetoothAdapterClass = SensorIPCClient;
-      console.log('[BluetoothOrchestrator] Mode IPC : SensorIPCClient chargé');
-    } else {
-      const adapterPath = path.join(this.projectRoot, 'src', 'adapters', 'secondary', 'sensors', 'bluetooth', 'NobleBluetoothAdapter.js');
-      this.bluetoothAdapterClass = require(adapterPath);
-      console.log('[BluetoothOrchestrator] Mode DIRECT : NobleBluetoothAdapter chargé');
-    }
-  }
-
-  /**
-   * Configure les listeners IPC pour la communication avec le main process
-   * @private
-   */
-  _setupIPCListeners() {
-    if (!window.require) {
-      console.warn('[BluetoothOrchestrator] window.require non disponible, IPC désactivé');
-      return;
-    }
+  async _initializeIPCMode() {
+    console.log('[BluetoothOrchestrator] Mode IPC');
     
     const { ipcRenderer } = window.require('electron');
     this.ipcRenderer = ipcRenderer;
     
-    console.log('[BluetoothOrchestrator] Configuration listeners IPC...');
+    this._setupIPCListeners();
+  }
+
+  async _initializeDirectMode() {
+    console.log('[BluetoothOrchestrator] Mode Direct');
+    
+    const adapterPath = path.join(this.projectRoot, 'src', 'adapters', 'secondary', 'bluetooth', 'noble', 'NobleBluetoothAdapter.js');
+    this.bluetoothAdapterClass = require(adapterPath);
+    
+    const adapter = new this.bluetoothAdapterClass();
+    await adapter.initialize();
+    this.state.setBluetoothAdapter(adapter);
+  }
+
+  _setupIPCListeners() {
+    if (!this.ipcRenderer) return;
+    
+    const ipcRenderer = this.ipcRenderer;
+    
+    ipcRenderer.on('bluetooth:stateChange', (event, state) => {
+      console.log('[BluetoothOrchestrator] IPC - État Bluetooth:', state);
+      this.state.setBluetoothState(state);
+      
+      if (state === 'poweredOn') {
+        this.sensorUIController.updateStatus('Bluetooth prêt - Cliquez pour scanner');
+      } else {
+        this.sensorUIController.updateStatus(`Bluetooth: ${state}`);
+      }
+    });
+    
+    ipcRenderer.on('sensor:discovered', (event, data) => {
+      console.log('[BluetoothOrchestrator] IPC - Capteur découvert:', data.address);
+      this.state.getDiscoveredDevices().add(data.address);
+      
+      const sensorInfo = this._getSensorInfo(data.address);
+      if (sensorInfo) {
+        this.sensorUIController.addSensor(data.address, sensorInfo.position, sensorInfo.color);
+      }
+    });
     
     ipcRenderer.on('sensor:connected', (event, data) => {
-      console.log('[BluetoothOrchestrator] IPC - Capteur connecté:', data);
+      console.log('[BluetoothOrchestrator] IPC - Capteur connecté:', data.address);
+      this.state.getConnectedDevices().add(data.address);
       
-      const address = data.address.toLowerCase();
-      this.state.getConnectedDevices().add(address);
-      
-      const sensorInfo = this._getSensorInfo(address);
+      const sensorInfo = this._getSensorInfo(data.address);
       if (sensorInfo) {
-        this.sensorUIController.updateDeviceDisplay(sensorInfo.position, {
-          connected: true,
-          address: address
-        });
-        
-        this._checkIfReady();
+        this.sensorUIController.updateSensorStatus(data.address, sensorInfo.position, 'connected');
       }
     });
     
     ipcRenderer.on('sensor:disconnected', (event, data) => {
-      console.log('[BluetoothOrchestrator] IPC - Capteur déconnecté:', data);
-      
-      const address = data.address.toLowerCase();
-      this.state.getConnectedDevices().delete(address);
-      this.state.getSensorsWithData().delete(address);
-      this.state.getCalibrationOffsets().delete(address);
-      
-      const sensorInfo = this._getSensorInfo(address);
-      if (sensorInfo) {
-        this.sensorUIController.updateDeviceDisplay(sensorInfo.position, {
-          connected: false
-        });
-        
-        this._checkIfReady();
-      }
+      console.log('[BluetoothOrchestrator] IPC - Capteur déconnecté:', data.address);
+      this._handleDisconnection(data.address);
     });
     
     ipcRenderer.on('sensor:data', (event, data) => {
@@ -163,139 +129,198 @@ class BluetoothOrchestrator {
       const normalized = this.SensorUtils.normalizeAnglesWithOffset(data.angles, offsets);
       
       this._updateAngles(sensorInfo.position, normalized);
+      
+      // NOUVEAU : Notifier les callbacks d'exercices
+      // En mode IPC, on reçoit les angles mais les exercices ont besoin des données gyro
+      // On reconstruit un objet de données compatible
+      if (this.exerciseDataCallbacks.has(address)) {
+        const callback = this.exerciseDataCallbacks.get(address);
+        try {
+          // Créer un objet compatible avec ce que les exercices attendent
+          const exerciseData = {
+            _ipcMode: true,
+            angles: data.angles,
+            gyro: data.gyro || null, // Gyro si disponible depuis le main process
+            timestamp: Date.now()
+          };
+          callback(exerciseData, address);
+        } catch (error) {
+          console.error('[BluetoothOrchestrator] Erreur callback exercice:', error);
+        }
+      }
     });
     
-    ipcRenderer.on('sensors:ready', () => {
-      console.log('[BluetoothOrchestrator] IPC - Les deux capteurs sont prêts');
-      this.sensorUIController.updateScanButton('Capteurs connectés', '#27ae60', false);
-      this.sensorUIController.updateStatus('Deux capteurs connectés et fonctionnels');
+    ipcRenderer.on('scan:started', () => {
+      console.log('[BluetoothOrchestrator] IPC - Scan démarré');
+      this.state.setIsScanning(true);
+      this.sensorUIController.updateStatus('Recherche en cours...');
     });
     
-    console.log('[BluetoothOrchestrator] ✓ Listeners IPC configurés');
+    ipcRenderer.on('scan:stopped', () => {
+      console.log('[BluetoothOrchestrator] IPC - Scan arrêté');
+      this.state.setIsScanning(false);
+      
+      if (this.state.getConnectedDevices().size > 0) {
+        this.sensorUIController.updateStatus(`${this.state.getConnectedDevices().size} capteur(s) connecté(s)`);
+      } else {
+        this.sensorUIController.updateStatus('Aucun capteur trouvé');
+      }
+    });
+    
+    // NOUVEAU : Listener pour les erreurs de scan
+    ipcRenderer.on('scan:error', (event, data) => {
+      console.error('[BluetoothOrchestrator] IPC - Erreur scan:', data.error);
+      this.state.setIsScanning(false);
+      this.sensorUIController.updateStatus(`Erreur: ${data.error}`);
+    });
   }
 
-  /**
-   * Gère les changements d'état Bluetooth
-   * @private
-   */
-  _handleStateChange(stateValue) {
-    console.log('[BluetoothOrchestrator] État Bluetooth changé:', stateValue);
-    
-    if (stateValue === 'poweredOff') {
-      this.sensorUIController.updateStatus('Bluetooth désactivé');
-      this.sensorUIController.updateScanButton('Bluetooth désactivé', '#e74c3c', false);
-    } else if (stateValue === 'poweredOn') {
-      this.sensorUIController.updateStatus('Bluetooth activé');
-      if (!this.state.getBluetoothAdapter().getScanStatus().isScanning) {
-        this.sensorUIController.updateScanButton('Rechercher les capteurs', '#4CAF50', true);
-      }
+  async toggleScan() {
+    if (this.state.getIsScanning()) {
+      await this.stopScan();
+    } else {
+      await this.startScan();
     }
   }
 
-  /**
-   * Gère la découverte d'un périphérique Bluetooth
-   * @private
-   */
-  async _handleDiscovery(peripheral) {
-    const address = peripheral.address.toLowerCase();
-    const sensorInfo = this._getSensorInfo(address);
+  async startScan() {
+    console.log('[BluetoothOrchestrator] Démarrage scan...');
     
-    if (!sensorInfo) {
+    this._resetDiscovery();
+    
+    try {
+      if (this.useIPCMode) {
+        // CORRECTION : Utiliser 'sensor:scan' au lieu de 'bluetooth:startScan'
+        console.log('[BluetoothOrchestrator] Envoi IPC: sensor:scan');
+        this.ipcRenderer.send('sensor:scan', {
+          targetAddresses: [
+            this.sensorConfig.leftAddress,
+            this.sensorConfig.rightAddress
+          ]
+        });
+      } else {
+        await this._startDirectScan();
+      }
+      
+    } catch (error) {
+      console.error('[BluetoothOrchestrator] Erreur scan:', error);
+      this.sensorUIController.updateStatus('Erreur lors du scan');
+    }
+  }
+
+  async stopScan() {
+    console.log('[BluetoothOrchestrator] Arrêt scan...');
+    
+    try {
+      if (this.useIPCMode) {
+        // CORRECTION : Utiliser 'sensor:stop-scan' au lieu de 'bluetooth:stopScan'
+        console.log('[BluetoothOrchestrator] Envoi IPC: sensor:stop-scan');
+        this.ipcRenderer.send('sensor:stop-scan');
+      } else {
+        await this.state.getBluetoothAdapter()?.stopScan();
+        this.state.setIsScanning(false);
+      }
+      
+    } catch (error) {
+      console.error('[BluetoothOrchestrator] Erreur arrêt scan:', error);
+    }
+  }
+
+  async _startDirectScan() {
+    const adapter = this.state.getBluetoothAdapter();
+    if (!adapter) {
+      throw new Error('Adapter Bluetooth non initialisé');
+    }
+    
+    this.state.setIsScanning(true);
+    this.sensorUIController.updateStatus('Recherche en cours...');
+    
+    const targetAddresses = [
+      this.sensorConfig.leftAddress,
+      this.sensorConfig.rightAddress
+    ];
+    
+    const onDiscovered = (peripheral) => {
+      this._handleDiscovery(peripheral);
+    };
+    
+    await adapter.startScan(targetAddresses, onDiscovered);
+    
+    setTimeout(async () => {
+      if (this.state.getIsScanning()) {
+        await this.stopScan();
+      }
+    }, 10000);
+  }
+
+  _handleDiscovery(peripheral) {
+    const address = peripheral.address.toLowerCase();
+    
+    if (this.state.getDiscoveredDevices().has(address)) {
       return;
     }
     
-    console.log(`[BluetoothOrchestrator] Capteur ${sensorInfo.position} trouvé`);
-    console.log(`[BluetoothOrchestrator] Adresse: ${address}`);
-    console.log(`[BluetoothOrchestrator] Signal: ${peripheral.rssi}dBm`);
+    console.log('[BluetoothOrchestrator] Capteur découvert:', address);
+    this.state.getDiscoveredDevices().add(address);
     
-    this.sensorUIController.updateDeviceDisplay(sensorInfo.position, {
-      connected: false,
-      address: address,
-      rssi: peripheral.rssi
-    });
+    const sensorInfo = this._getSensorInfo(address);
+    if (!sensorInfo) {
+      console.warn('[BluetoothOrchestrator] Capteur inconnu:', address);
+      return;
+    }
+    
+    this.sensorUIController.addSensor(address, sensorInfo.position, sensorInfo.color);
+    
+    this._connectToSensor(peripheral, sensorInfo);
+  }
+
+  async _connectToSensor(peripheral, sensorInfo) {
+    const address = peripheral.address.toLowerCase();
+    
+    console.log('[BluetoothOrchestrator] Connexion à:', sensorInfo.position);
+    this.sensorUIController.updateSensorStatus(address, sensorInfo.position, 'connecting');
     
     try {
-      console.log(`[BluetoothOrchestrator] Connexion à ${sensorInfo.position}...`);
-      this.sensorUIController.updateStatus(`Connexion au capteur ${sensorInfo.position}...`);
+      const adapter = this.state.getBluetoothAdapter();
       
-      await this.state.getBluetoothAdapter().connectSensor(peripheral, () => {
-        this._handleDisconnection(address, sensorInfo.position);
-      });
+      await adapter.connect(peripheral);
       
+      this.state.getConnectedDevices().add(address);
       this.state.getPeripheralRefs().set(address, peripheral);
-      await this._handleConnection(address, sensorInfo.position, sensorInfo.color, peripheral);
+      
+      console.log('[BluetoothOrchestrator] ✓ Connecté:', sensorInfo.position);
+      this.sensorUIController.updateSensorStatus(address, sensorInfo.position, 'connected');
+      
+      await this._setupSensorNotifications(peripheral, address, sensorInfo);
       
     } catch (error) {
-      console.error(`[BluetoothOrchestrator] Erreur connexion ${sensorInfo.position}:`, error);
-      this.sensorUIController.updateStatus(`Erreur: ${error.message}`);
+      console.error('[BluetoothOrchestrator] Erreur connexion:', error);
+      this.sensorUIController.updateSensorStatus(address, sensorInfo.position, 'error');
+      this.state.getDiscoveredDevices().delete(address);
     }
   }
 
-  /**
-   * Gère la connexion réussie d'un capteur
-   * @private
-   */
-  async _handleConnection(address, position, color, peripheral) {
-    console.log(`[BluetoothOrchestrator] ${position} connecté`);
-    
-    this.state.getConnectedDevices().add(address);
-    
-    this.sensorUIController.updateDeviceDisplay(position, {
-      connected: true,
-      address: address
-    });
-    
-    await this.state.getBluetoothAdapter().setupNotifications(peripheral, (data, deviceAddress) => {
-      if (deviceAddress === address) {
-        this._handleSensorData(data, address, position, color);
-      }
-    });
-    
-    this._checkIfReady();
-  }
-
-  /**
-   * Gère la déconnexion d'un capteur
-   * @private
-   */
-  _handleDisconnection(address, position) {
-    console.log(`[BluetoothOrchestrator] Déconnexion ${position}`);
-    
-    this.state.getConnectedDevices().delete(address);
-    this.state.getSensorsWithData().delete(address);
-    this.state.getCalibrationOffsets().delete(address);
-    this.state.getPeripheralRefs().delete(address);
-    
-    this.sensorUIController.updateDeviceDisplay(position, {
-      connected: false
-    });
-    
-    if (this.state.getConnectedDevices().size === 0) {
-      console.log('[BluetoothOrchestrator] Aucun capteur connecté');
+  async _setupSensorNotifications(peripheral, address, sensorInfo) {
+    try {
+      const adapter = this.state.getBluetoothAdapter();
       
-      if (!this.state.getBluetoothAdapter().getScanStatus().isScanning) {
-        this.sensorUIController.updateScanButton('Rechercher les capteurs', '#4CAF50', true);
-        this.sensorUIController.updateStatus('Aucun capteur connecté');
-      }
-    }
-    else {
-      console.log('[BluetoothOrchestrator] Un capteur reste connecté');
+      const dataCallback = (data) => {
+        this._handleSensorData(data, address, sensorInfo.position, sensorInfo.color);
+      };
       
-      if (!this.state.getBluetoothAdapter().getScanStatus().isScanning) {
-        this.sensorUIController.updateScanButton('Reconnecter les capteurs', '#f39c12', true);
-        this.sensorUIController.updateStatus(`Capteur ${position} déconnecté - Cliquez pour reconnecter`);
-      }
+      await adapter.setupNotifications(peripheral, dataCallback);
+      
+      console.log('[BluetoothOrchestrator] Notifications configurées:', sensorInfo.position);
+      
+    } catch (error) {
+      console.error('[BluetoothOrchestrator] Erreur notifications:', error);
+      throw error;
     }
   }
 
-  /**
-   * Gère les données reçues d'un capteur
-   * @private
-   */
   _handleSensorData(data, address, position, color) {
     if (!data || data.length < 1) return;
     
-    // Parse les données BWT901BLECL5.0 avec SensorUtils
     const angles = this.SensorUtils.parseBWT901Data(data);
     
     if (!angles) return;
@@ -314,210 +339,243 @@ class BluetoothOrchestrator {
     const normalized = this.SensorUtils.normalizeAnglesWithOffset(angles, offsets);
     
     this._updateAngles(position, normalized);
-  }
-
-  /**
-   * Vérifie si les deux capteurs sont prêts et met à jour l'UI
-   * @private
-   */
-  _checkIfReady() {
-    const leftConnected = this.state.getConnectedDevices().has(this.sensorConfig.leftAddress.toLowerCase());
-    const rightConnected = this.state.getConnectedDevices().has(this.sensorConfig.rightAddress.toLowerCase());
-    const leftHasData = this.state.getSensorsWithData().has(this.sensorConfig.leftAddress.toLowerCase());
-    const rightHasData = this.state.getSensorsWithData().has(this.sensorConfig.rightAddress.toLowerCase());
-
-    if (leftConnected && rightConnected && leftHasData && rightHasData) {
-      console.log('[BluetoothOrchestrator] Les deux capteurs fonctionnent');
-      
-      if (this.state.getBluetoothAdapter().getScanStatus().isScanning) {
-        this.stopScan();
-      }
-      
-      this.sensorUIController.updateScanButton('Capteurs connectés', '#27ae60', false);
-      this.sensorUIController.updateStatus('Deux capteurs connectés et fonctionnels');
-    }
-    else if ((leftConnected && !rightConnected) || (!leftConnected && rightConnected)) {
-      console.log('[BluetoothOrchestrator] Un capteur manque');
-      
-      if (!this.state.getBluetoothAdapter().getScanStatus().isScanning) {
-        const missingSensor = !leftConnected ? 'GAUCHE' : 'DROIT';
-        this.sensorUIController.updateScanButton('Reconnecter les capteurs', '#f39c12', true);
-        this.sensorUIController.updateStatus(`Capteur ${missingSensor} déconnecté - Cliquez pour reconnecter`);
-      }
-    }
-    else if (!leftConnected && !rightConnected) {
-      console.log('[BluetoothOrchestrator] Aucun capteur connecté');
-      
-      if (!this.state.getBluetoothAdapter().getScanStatus().isScanning) {
-        this.sensorUIController.updateScanButton('Rechercher les capteurs', '#4CAF50', true);
-        this.sensorUIController.updateStatus('Aucun capteur connecté - Cliquez pour rechercher');
-      }
-    }
-  }
-
-  /**
-   * Bascule l'état du scan (start/stop)
-   */
-  async toggleScan() {
-    const status = this.state.getBluetoothAdapter().getScanStatus();
     
-    if (status.isScanning) {
-      await this.stopScan();
-    } else {
-      await this.startScan();
-    }
-  }
-
-  /**
-   * Démarre le scan Bluetooth
-   */
-  async startScan() {
-    try {
-      console.log('[BluetoothOrchestrator] Démarrage scan...');
-      
-      const leftConnected = this.state.getConnectedDevices().has(this.sensorConfig.leftAddress.toLowerCase());
-      const rightConnected = this.state.getConnectedDevices().has(this.sensorConfig.rightAddress.toLowerCase());
-      const leftHasData = this.state.getSensorsWithData().has(this.sensorConfig.leftAddress.toLowerCase());
-      const rightHasData = this.state.getSensorsWithData().has(this.sensorConfig.rightAddress.toLowerCase());
-      
-      if (leftConnected && rightConnected && leftHasData && rightHasData) {
-        console.log('[BluetoothOrchestrator] Les deux capteurs sont déjà connectés et fonctionnels');
-        this.sensorUIController.updateStatus('Les deux capteurs fonctionnent déjà');
-        return;
+    // NOUVEAU : Notifier les callbacks d'exercices (envoyer les données brutes)
+    if (this.exerciseDataCallbacks.has(address)) {
+      const callback = this.exerciseDataCallbacks.get(address);
+      try {
+        callback(data, address);
+      } catch (error) {
+        console.error('[BluetoothOrchestrator] Erreur callback exercice:', error);
       }
-      
-      this.sensorUIController.updateScanButton('Recherche...', '#e74c3c', false);
-      this.sensorUIController.updateStatus('Recherche des capteurs...');
-      
-      await this.state.getBluetoothAdapter().startScanning();
-      
-      console.log('[BluetoothOrchestrator] Scan démarré');
-      this.sensorUIController.updateStatus('Scan actif - Recherche des capteurs...');
-      
-      const timeout = setTimeout(() => {
-        const leftNowConnected = this.state.getConnectedDevices().has(this.sensorConfig.leftAddress.toLowerCase());
-        const rightNowConnected = this.state.getConnectedDevices().has(this.sensorConfig.rightAddress.toLowerCase());
-        
-        if (!leftNowConnected || !rightNowConnected) {
-          console.log('[BluetoothOrchestrator] Timeout scan');
-          const missing = [];
-          if (!leftNowConnected) missing.push('GAUCHE');
-          if (!rightNowConnected) missing.push('DROIT');
-          this.sensorUIController.updateStatus(`Timeout - ${missing.join(' et ')} non trouvé(s)`);
-          this.stopScan();
-        }
-      }, 45000);
-      
-      this.state.setScanTimeout(timeout);
-      
-    } catch (error) {
-      console.error('[BluetoothOrchestrator] Erreur démarrage scan:', error);
-      this.sensorUIController.updateStatus('Erreur de scan');
-      this.sensorUIController.updateScanButton('Réessayer', '#e74c3c', true);
     }
   }
 
-  /**
-   * Arrête le scan Bluetooth
-   */
-  async stopScan() {
-    try {
-      console.log('[BluetoothOrchestrator] Arrêt scan...');
-      
-      this.state.clearScanTimeout();
-      
-      await this.state.getBluetoothAdapter().stopScanning();
-      
-      console.log('[BluetoothOrchestrator] Scan arrêté');
-      
-      this.sensorUIController.updateScanButton('Stabilisation...', '#95a5a6', false);
-      
-      setTimeout(() => {
-        const leftConnected = this.state.getConnectedDevices().has(this.sensorConfig.leftAddress.toLowerCase());
-        const rightConnected = this.state.getConnectedDevices().has(this.sensorConfig.rightAddress.toLowerCase());
-        const leftHasData = this.state.getSensorsWithData().has(this.sensorConfig.leftAddress.toLowerCase());
-        const rightHasData = this.state.getSensorsWithData().has(this.sensorConfig.rightAddress.toLowerCase());
-        
-        if (leftConnected && rightConnected && leftHasData && rightHasData) {
-          this.sensorUIController.updateScanButton('Capteurs connectés', '#27ae60', false);
-          this.sensorUIController.updateStatus('Deux capteurs connectés et fonctionnels');
-        }
-        else if (leftConnected || rightConnected) {
-          const missingSensor = !leftConnected ? 'GAUCHE' : 'DROIT';
-          this.sensorUIController.updateScanButton('Reconnecter les capteurs', '#f39c12', true);
-          this.sensorUIController.updateStatus(`Capteur ${missingSensor} manquant - Cliquez pour reconnecter`);
-        }
-        else {
-          this.sensorUIController.updateScanButton('Rechercher les capteurs', '#4CAF50', true);
-          this.sensorUIController.updateStatus('Prêt pour nouveau scan');
-        }
-      }, 3000);
-      
-    } catch (error) {
-      console.error('[BluetoothOrchestrator] Arrêt scan erreur:', error);
+  _handleDisconnection(address) {
+    console.log('[BluetoothOrchestrator] Déconnexion capteur:', address);
+    
+    this.state.getConnectedDevices().delete(address);
+    this.state.getSensorsWithData().delete(address);
+    this.state.getPeripheralRefs().delete(address);
+    
+    const sensorInfo = this._getSensorInfo(address);
+    if (sensorInfo) {
+      this.sensorUIController.updateSensorStatus(address, sensorInfo.position, 'disconnected');
     }
   }
 
-  /**
-   * Nettoyage avant fermeture
-   */
+  _updateAngles(position, angles) {
+    if (this.onAnglesUpdate) {
+      this.onAnglesUpdate(position, angles);
+    }
+  }
+
+  _checkIfReady() {
+    const connected = this.state.getConnectedDevices().size;
+    const withData = this.state.getSensorsWithData().size;
+    
+    if (connected > 0 && connected === withData) {
+      console.log('[BluetoothOrchestrator] ✓ Tous les capteurs prêts');
+      this.sensorUIController.updateStatus(`${connected} capteur(s) prêt(s)`);
+    }
+  }
+
+  _resetDiscovery() {
+    this.state.getDiscoveredDevices().clear();
+    this.state.getConnectedDevices().clear();
+    this.state.getSensorsWithData().clear();
+    this.state.getCalibrationOffsets().clear();
+    this.state.getPeripheralRefs().clear();
+    
+    this.sensorUIController.clearSensors();
+  }
+
   async cleanup() {
     console.log('[BluetoothOrchestrator] Nettoyage...');
     
-    this.state.clearScanTimeout();
+    if (this.state.getIsScanning()) {
+      await this.stopScan();
+    }
+    
+    if (this.useIPCMode && this.ipcRenderer) {
+      this.ipcRenderer.removeAllListeners('bluetooth:stateChange');
+      this.ipcRenderer.removeAllListeners('sensor:discovered');
+      this.ipcRenderer.removeAllListeners('sensor:connected');
+      this.ipcRenderer.removeAllListeners('sensor:disconnected');
+      this.ipcRenderer.removeAllListeners('sensor:data');
+      this.ipcRenderer.removeAllListeners('scan:started');
+      this.ipcRenderer.removeAllListeners('scan:stopped');
+      this.ipcRenderer.removeAllListeners('scan:error'); // NOUVEAU
+    }
     
     if (this.state.getBluetoothAdapter()) {
       await this.state.getBluetoothAdapter().cleanup();
     }
   }
 
-  /**
-   * Libération des ressources
-   */
   dispose() {
     console.log('[BluetoothOrchestrator] Dispose');
     this.cleanup();
     this.state = null;
     this.sensorUIController = null;
+    this.onAnglesUpdate = null;
     this.bluetoothAdapterClass = null;
     this.ipcRenderer = null;
+    this.exerciseDataCallbacks.clear();
+  }
+
+  // ========================================
+  // MÉTHODES PUBLIQUES POUR USE CASES
+  // ========================================
+
+  /**
+   * Récupère le service capteur pour les use cases
+   * En mode IPC, retourne l'orchestrator lui-même qui sert de proxy
+   * En mode Direct, retourne l'adapter Noble
+   * @returns {Object} Instance du service capteur
+   */
+  getSensorService() {
+    if (this.useIPCMode) {
+      // En mode IPC, l'orchestrator sert de proxy
+      console.log('[BluetoothOrchestrator] getSensorService() → Mode IPC, retourne l\'orchestrator');
+      return this;
+    } else {
+      // En mode Direct, retourner l'adapter Noble
+      console.log('[BluetoothOrchestrator] getSensorService() → Mode Direct, retourne l\'adapter');
+      return this.state.getBluetoothAdapter();
+    }
+  }
+
+  /**
+   * Méthode proxy pour setupNotifications (compatibilité avec RunExerciseUseCase)
+   * En mode IPC, délègue à registerExerciseCallback
+   * En mode Direct, délègue à l'adapter Noble
+   * @param {Object} peripheral - Peripheral du capteur
+   * @param {Function} callback - Callback à appeler avec les données
+   */
+  async setupNotifications(peripheral, callback) {
+    if (this.useIPCMode) {
+      // En mode IPC, enregistrer le callback
+      console.log('[BluetoothOrchestrator] setupNotifications (mode IPC) pour', peripheral.address);
+      this.registerExerciseCallback(peripheral.address, callback);
+      return Promise.resolve();
+    } else {
+      // En mode Direct, déléguer à l'adapter
+      console.log('[BluetoothOrchestrator] setupNotifications (mode Direct)');
+      const adapter = this.state.getBluetoothAdapter();
+      if (!adapter) {
+        throw new Error('Adapter Bluetooth non disponible');
+      }
+      return adapter.setupNotifications(peripheral, callback);
+    }
+  }
+
+  /**
+   * Récupère les capteurs connectés avec leurs informations
+   * Compatible mode IPC et Direct
+   * @returns {Array} Liste des capteurs connectés [{address, position, peripheral}, ...]
+   */
+  getConnectedSensors() {
+    const sensors = [];
+    
+    // Parcourir les devices connectés
+    for (const address of this.state.getConnectedDevices()) {
+      const sensorInfo = this._getSensorInfo(address);
+      
+      if (!sensorInfo) continue;
+      
+      // En mode Direct, récupérer le peripheral réel
+      let peripheral = null;
+      
+      if (this.state.getPeripheralRefs && this.state.getPeripheralRefs()) {
+        peripheral = this.state.getPeripheralRefs().get(address);
+      }
+      
+      // Si pas de peripheral (mode IPC), créer un objet minimal
+      if (!peripheral) {
+        peripheral = {
+          address: address,
+          advertisement: {
+            localName: `Capteur ${sensorInfo.position}`
+          },
+          _ipcMode: true,
+          _bluetoothOrchestrator: this // Référence pour que RunExerciseUseCase puisse s'enregistrer
+        };
+      }
+      
+      sensors.push({
+        address: address,
+        position: sensorInfo.position,
+        color: sensorInfo.color,
+        peripheral: peripheral
+      });
+    }
+    
+    return sensors;
+  }
+
+  /**
+   * Récupère le peripheral pour un exercice
+   * Priorité : capteur droit > premier capteur disponible
+   * @returns {Object|null} Peripheral du capteur ou null si aucun disponible
+   */
+  getPeripheralForExercise() {
+    const sensors = this.getConnectedSensors();
+    
+    if (sensors.length === 0) {
+      console.warn('[BluetoothOrchestrator] Aucun capteur connecté pour exercice');
+      return null;
+    }
+    
+    // Chercher le capteur droit en priorité (pour Heart of Frost)
+    const rightSensor = sensors.find(s => s.position === 'DROIT');
+    if (rightSensor) {
+      console.log('[BluetoothOrchestrator] Capteur DROIT sélectionné pour exercice');
+      return rightSensor.peripheral;
+    }
+    
+    // Sinon prendre le premier disponible
+    console.log(`[BluetoothOrchestrator] Capteur ${sensors[0].position} sélectionné pour exercice`);
+    return sensors[0].peripheral;
+  }
+
+  /**
+   * Enregistre un callback pour recevoir les données brutes d'un capteur
+   * Utilisé par les exercices en mode IPC
+   * @param {string} address - Adresse du capteur
+   * @param {Function} callback - Fonction à appeler avec (data, address)
+   */
+  registerExerciseCallback(address, callback) {
+    console.log(`[BluetoothOrchestrator] Enregistrement callback exercice pour ${address}`);
+    this.exerciseDataCallbacks.set(address.toLowerCase(), callback);
+  }
+
+  /**
+   * Désenregistre un callback d'exercice
+   * @param {string} address - Adresse du capteur
+   */
+  unregisterExerciseCallback(address) {
+    console.log(`[BluetoothOrchestrator] Désenregistrement callback exercice pour ${address}`);
+    this.exerciseDataCallbacks.delete(address.toLowerCase());
   }
 
   // ========================================
   // FONCTIONS UTILITAIRES PRIVÉES
   // ========================================
 
-  /**
-   * Obtient les informations d'un capteur depuis son adresse
-   * @private
-   */
   _getSensorInfo(address) {
-    return this.SensorUtils.getSensorInfo(address, this.sensorConfig);
-  }
-
-  /**
-   * Normalise un angle dans [-180, 180]
-   * @private
-   */
-  _normalizeAngle(angle) {
-    return this.SensorUtils.normalizeAngle(angle);
-  }
-
-  /**
-   * Met à jour les angles et appelle le callback externe
-   * @private
-   */
-  _updateAngles(position, angles) {
-    // Mise à jour UI via SensorUIController
-    this.sensorUIController.updateAngles(position, angles);
+    const normalizedAddress = address.toLowerCase();
     
-    // Callback externe pour la logique métier (IMU → Audio)
-    if (this.onAnglesUpdate) {
-      this.onAnglesUpdate(position, angles);
+    if (normalizedAddress === this.sensorConfig.leftAddress.toLowerCase()) {
+      return { position: 'GAUCHE', color: this.sensorConfig.leftColor };
     }
+    
+    if (normalizedAddress === this.sensorConfig.rightAddress.toLowerCase()) {
+      return { position: 'DROIT', color: this.sensorConfig.rightColor };
+    }
+    
+    return null;
   }
 }
 
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = BluetoothOrchestrator;
-}
+module.exports = BluetoothOrchestrator;

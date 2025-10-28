@@ -91,6 +91,11 @@ interface Window {
     Exercise: typeof Exercise;
     ExerciseLevel: typeof ExerciseLevel;
     HeartOfFrostExercise: typeof HeartOfFrostExercise;
+    
+    // Fonctions d'exercices exposées globalement pour tests DevTools
+    startHeartOfFrost?: (level?: number) => Promise<boolean>;
+    stopExercise?: () => void;
+    resetExercise?: () => void;
 }
 
 // ===== Déclarations globales (Node.js) =====

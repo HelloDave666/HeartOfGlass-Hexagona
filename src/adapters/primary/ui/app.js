@@ -1,8 +1,9 @@
-﻿// src/adapters/primary/ui/app.js
-// INTÉGRATION : NobleBluetoothAdapter + Système Audio Granulaire + Enregistrement MP3
+﻿/// <reference path="../../../globals.d.ts" />
+// src/adapters/primary/ui/app.js
+// INTÉGRATION : NobleBluetoothAdapter + Système Audio Granulaire + Enregistrement MP3 + Exercices
 // Phase 7 - Step 11 : AppBootstrap - app.js simplifié à ~180 lignes
 
-console.log('Heart of Glass - Version avec Architecture Hexagonale Complète');
+console.log('Heart of Glass - Version avec Architecture Hexagonale Complète + Exercices');
 
 // ========================================
 // MODE HYBRIDE : Basculement IPC / Direct
@@ -19,6 +20,7 @@ const StateManager = require(path.join(projectRoot, 'src', 'adapters', 'primary'
 const AppBootstrap = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'bootstrap', 'AppBootstrap.js'));
 const BluetoothOrchestrator = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'orchestrators', 'BluetoothOrchestrator.js'));
 const AudioOrchestrator = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'orchestrators', 'AudioOrchestrator.js'));
+const ExerciseOrchestrator = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'orchestrators', 'ExerciseOrchestrator.js'));
 
 // ========================================
 // CONFIGURATION
@@ -273,13 +275,45 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   
   if (audioOk) {
-    console.log('[Audio] Audio prêt');
+    console.log('[App] Audio prêt');
   } else {
-    console.error('[Audio] Audio échoué');
+    console.error('[App] Audio échoué');
+  }
+
+  // ========================================
+  // INITIALISATION EXERCICE ORCHESTRATOR
+  // ========================================
+  
+  orchestrators.exercise = new ExerciseOrchestrator({
+    state,
+    bluetoothOrchestrator: orchestrators.bluetooth,
+    audioOrchestrator: orchestrators.audio,
+    exerciseUIController: null // TODO: créer le controller UI plus tard
+  });
+
+  const exerciseOk = await orchestrators.exercise.initialize();
+
+  if (exerciseOk) {
+    console.log('[App] ✓ Exercices prêts');
+    
+    // Exposer globalement pour tests dans la console DevTools
+    // @ts-ignore - Fonction exposée dynamiquement pour tests
+    window.startHeartOfFrost = (level = 0) => orchestrators.exercise.startHeartOfFrost(level);
+    // @ts-ignore - Fonction exposée dynamiquement pour tests
+    window.stopExercise = () => orchestrators.exercise.stopExercise();
+    // @ts-ignore - Fonction exposée dynamiquement pour tests
+    window.resetExercise = () => orchestrators.exercise.resetExercise();
+    
+    console.log('[App] 💡 Fonctions d\'exercices disponibles dans la console :');
+    console.log('  - window.startHeartOfFrost(level)  // level = 0 ou 1');
+    console.log('  - window.stopExercise()');
+    console.log('  - window.resetExercise()');
+  } else {
+    console.error('[App] ✗ Exercices échoués');
   }
   
   console.log('[App] ✓ Application prête');
-});
+});  // ← CETTE LIGNE ÉTAIT MANQUANTE (ferme document.addEventListener)
 
 // ========================================
 // CLEANUP
@@ -300,6 +334,11 @@ if (window.require) {
     if (orchestrators.audio) {
       await orchestrators.audio.cleanup();
       orchestrators.audio.dispose();
+    }
+    
+    if (orchestrators.exercise) {
+      await orchestrators.exercise.cleanup();
+      orchestrators.exercise.dispose();
     }
     
     // Cleanup contrôleurs

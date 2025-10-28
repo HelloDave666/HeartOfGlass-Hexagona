@@ -1,36 +1,45 @@
 // src/adapters/primary/ui/services/StateManager.js
-// src/adapters/primary/ui/services/StateManager.js
 // NOTE: Service cross-cutting qui centralise l'état de l'application
 // Utilisé par tous les contrôleurs et orchestrateurs
 // Alternative possible: Déplacer vers src/shared/state/ dans une future refactorisation
 
 class StateManager {
   constructor() {
+    // Bluetooth - Devices
     this.connectedDevices = new Set();
+    this.discoveredDevices = new Set();  // NOUVEAU
     this.sensorsWithData = new Set();
     this.peripheralRefs = new Map();
     this.calibrationOffsets = new Map();
     
+    // Bluetooth - État
     this.bluetoothAdapter = null;
+    this.bluetoothState = 'unknown';  // NOUVEAU: poweredOn, poweredOff, etc.
+    this.isScanning = false;  // NOUVEAU
     this.scanTimeout = null;
     
+    // Audio - Système
     this.audioSystem = null;
     this.audioState = null;
     this.audioParameters = null;
     
+    // Audio - Lecture
     this.timelineUpdateInterval = null;
     this.currentAudioFile = null;
     this.imuToAudioEnabled = false;
     
+    // Audio - Enregistrement
     this.audioRecorder = null;
     this.isRecording = false;
     
+    // IMU
     this.smoothedPlaybackRate = 1.0;
     this.lastAngles = {
       left: { x: 0, y: 0, z: 0, timestamp: 0 },
       right: { x: 0, y: 0, z: 0, timestamp: 0 }
     };
     
+    // UI References
     this.audioUI = {
       fileInput: null,
       fileName: null,
@@ -60,8 +69,16 @@ class StateManager {
     };
   }
 
+  // ========================================
+  // BLUETOOTH - DEVICES
+  // ========================================
+
   getConnectedDevices() {
     return this.connectedDevices;
+  }
+
+  getDiscoveredDevices() {
+    return this.discoveredDevices;
   }
 
   getSensorsWithData() {
@@ -76,12 +93,32 @@ class StateManager {
     return this.calibrationOffsets;
   }
 
+  // ========================================
+  // BLUETOOTH - ÉTAT
+  // ========================================
+
   getBluetoothAdapter() {
     return this.bluetoothAdapter;
   }
 
   setBluetoothAdapter(adapter) {
     this.bluetoothAdapter = adapter;
+  }
+
+  getBluetoothState() {
+    return this.bluetoothState;
+  }
+
+  setBluetoothState(state) {
+    this.bluetoothState = state;
+  }
+
+  getIsScanning() {
+    return this.isScanning;
+  }
+
+  setIsScanning(scanning) {
+    this.isScanning = scanning;
   }
 
   getScanTimeout() {
@@ -98,6 +135,10 @@ class StateManager {
       this.scanTimeout = null;
     }
   }
+
+  // ========================================
+  // AUDIO - SYSTÈME
+  // ========================================
 
   getAudioSystem() {
     return this.audioSystem;
@@ -122,6 +163,10 @@ class StateManager {
   setAudioParameters(params) {
     this.audioParameters = params;
   }
+
+  // ========================================
+  // AUDIO - LECTURE
+  // ========================================
 
   getTimelineUpdateInterval() {
     return this.timelineUpdateInterval;
@@ -154,6 +199,10 @@ class StateManager {
     this.imuToAudioEnabled = enabled;
   }
 
+  // ========================================
+  // AUDIO - ENREGISTREMENT
+  // ========================================
+
   getAudioRecorder() {
     return this.audioRecorder;
   }
@@ -169,6 +218,10 @@ class StateManager {
   setIsRecording(recording) {
     this.isRecording = recording;
   }
+
+  // ========================================
+  // IMU
+  // ========================================
 
   getSmoothedPlaybackRate() {
     return this.smoothedPlaybackRate;
@@ -191,20 +244,34 @@ class StateManager {
     };
   }
 
+  // ========================================
+  // UI
+  // ========================================
+
   getAudioUI() {
     return this.audioUI;
   }
 
+  // ========================================
+  // RESET
+  // ========================================
+
   reset() {
+    // Bluetooth
     this.connectedDevices.clear();
+    this.discoveredDevices.clear();
     this.sensorsWithData.clear();
     this.peripheralRefs.clear();
     this.calibrationOffsets.clear();
+    this.bluetoothState = 'unknown';
+    this.isScanning = false;
     
     this.clearScanTimeout();
     this.clearTimelineUpdateInterval();
     
     this.bluetoothAdapter = null;
+    
+    // Audio
     this.audioSystem = null;
     this.currentAudioFile = null;
     this.audioRecorder = null;
@@ -212,6 +279,7 @@ class StateManager {
     this.imuToAudioEnabled = false;
     this.smoothedPlaybackRate = 1.0;
     
+    // IMU
     this.lastAngles = {
       left: { x: 0, y: 0, z: 0, timestamp: 0 },
       right: { x: 0, y: 0, z: 0, timestamp: 0 }
