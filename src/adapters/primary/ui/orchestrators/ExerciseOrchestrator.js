@@ -101,10 +101,13 @@ class ExerciseOrchestrator {
                 this.exerciseUIController.updateMetrics(metrics);
             }
             
-            // Log occasionnel (pas à chaque frame)
-            if (metrics.rotationCount % 5 === 0) {
+            // Log occasionnel toutes les 5 secondes
+            const shouldLog = metrics.elapsedTime && 
+                             (metrics.elapsedTime % 5 === 0 || metrics.elapsedTime % 5 === 1);
+
+            if (shouldLog) {
                 console.log('[ExerciseOrchestrator] Progress:', {
-                    rotations: `${metrics.rotationCount}/${metrics.targetRotations}`,
+                    temps: `${metrics.elapsedTime}s / ${metrics.targetDuration}s`,
                     score: metrics.regularityScore,
                     feedback: metrics.feedback.message
                 });

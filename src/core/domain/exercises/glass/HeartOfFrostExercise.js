@@ -1,7 +1,11 @@
 // @ts-nocheck
 /**
- * HeartOfFrostExercise.js - Exercice de rotation régulière
+ * HeartOfFrostExercise.js - Exercice de rotation régulière (v5.1)
  * Chemin: src/core/domain/exercises/glass/HeartOfFrostExercise.js
+ * 
+ * CORRECTIONS v5.1 :
+ * - Tolérance élargie à 40% pour zone de régularité plus confortable
+ * - Durée d'exercice augmentée à 2 minutes pour tests approfondis
  */
 
 // ========================================
@@ -29,8 +33,8 @@ const ExerciseLevel = require(path.join(projectRoot, 'src', 'core', 'domain', 'e
  * @property {number} playbackRate - Vitesse de lecture audio (0.1-2.0)
  * @property {number} volume - Volume audio (0-1)
  * @property {number} regularityScore - Score de régularité (0-100)
- * @property {number} rotationCount - Nombre de rotations effectuées
- * @property {number} targetRotations - Nombre de rotations cibles
+ * @property {number} elapsedTime - Temps écoulé en secondes
+ * @property {number} targetDuration - Durée cible en secondes
  * @property {number} accuracy - Précision (0-1)
  * @property {ExerciseFeedback} feedback - Feedback visuel
  * @property {boolean} isCompleted - Exercice complété
@@ -41,49 +45,42 @@ const ExerciseLevel = require(path.join(projectRoot, 'src', 'core', 'domain', 'e
 // ========================================
 
 /**
- * Exercice "Cœur de givre" - Rotation régulière sur l'axe Y
+ * Exercice "Cœur de givre" - Rotation régulière sur l'axe Y pendant 2 minutes
  * @extends Exercise
  */
 class HeartOfFrostExercise extends Exercise {
     constructor() {
         super('heart-of-frost', {
             name: 'Cœur de givre',
-            description: 'Apprends la rotation parfaite sur l\'axe Y',
+            description: 'Maintiens une rotation régulière pendant 2 minutes',
             craft: 'glass',
             levels: HeartOfFrostExercise.createLevels()
         });
 
         // Paramètres de l'exercice
-        /** @type {number} */
-        this.targetRPM = 60;                    // 1 rotation/seconde
-        
-        /** @type {number} */
-        this.targetDegreesPerSec = 360;         // 360°/sec
-        
-        /** @type {number} */
-        this.tolerance = 0.10;                  // ±10%
-        
-        /** @type {number} */
+        this.targetRPM = 60;
+        this.targetDegreesPerSec = 360;
+        this.tolerance = 0.40;
         this.smoothingFactor = 0.3;
         
+        // NOUVEAU : Détection automatique du facteur de conversion
+        this.conversionFactor = 1.0;
+        this.autoDetectConversion = true;
+        this.samplesForDetection = [];
+        this.maxSamplesForDetection = 20;
+        
+        // Filtre anti-aberrations adaptatif
+        this.maxValidGyroValue = 2000;
+        
         // État
-        /** @type {number} */
         this.currentAngularVelocity = 0;
-        
-        /** @type {number} */
         this.smoothedVelocity = 0;
-        
-        /** @type {number} */
-        this.rotationCount = 0;
-        
-        /** @type {number} */
         this.regularityScore = 100;
-        
-        /** @type {number} */
         this.totalSamples = 0;
-        
-        /** @type {number} */
         this.accurateSamples = 0;
+        this.startTime = null;
+        this.elapsedTime = 0;
+        this.sampleCount = 0;
     }
 
     /**
@@ -96,25 +93,25 @@ class HeartOfFrostExercise extends Exercise {
             new ExerciseLevel({
                 number: 1,
                 name: 'Découverte',
-                description: '10 rotations régulières',
+                description: 'Maintiens une rotation régulière pendant 2 minutes',
                 requirements: {
-                    targetRotations: 10,
+                    targetDuration: 120,
                     targetRPM: 60,
-                    tolerance: 0.10
+                    tolerance: 0.40
                 },
-                successCriteria: { minScore: 70, minAccuracy: 0.8 },
+                successCriteria: { minScore: 60, minAccuracy: 0.6 },
                 rewards: { xp: 100, gems: 0 }
             }),
             new ExerciseLevel({
                 number: 2,
                 name: 'Pratique',
-                description: '15 rotations régulières',
+                description: 'Maintiens une rotation régulière pendant 2 minutes avec plus de précision',
                 requirements: {
-                    targetRotations: 15,
+                    targetDuration: 120,
                     targetRPM: 60,
-                    tolerance: 0.10
+                    tolerance: 0.30
                 },
-                successCriteria: { minScore: 75, minAccuracy: 0.85 },
+                successCriteria: { minScore: 70, minAccuracy: 0.7 },
                 rewards: { xp: 150, gems: 1 }
             })
         ];
@@ -126,6 +123,8 @@ class HeartOfFrostExercise extends Exercise {
      */
     onStart() {
         this.resetMetrics();
+        this.startTime = Date.now();
+        console.log('[HeartOfFrostExercise] Démarrage chronométrage - Durée: 2 minutes');
     }
 
     /**
@@ -134,6 +133,7 @@ class HeartOfFrostExercise extends Exercise {
      */
     onStop() {
         this.score = this.calculateFinalScore();
+        console.log('[HeartOfFrostExercise] Score final:', this.score);
     }
 
     /**
@@ -142,6 +142,7 @@ class HeartOfFrostExercise extends Exercise {
      */
     onReset() {
         this.resetMetrics();
+        this.startTime = Date.now();
     }
 
     /**
@@ -151,16 +152,54 @@ class HeartOfFrostExercise extends Exercise {
     resetMetrics() {
         this.currentAngularVelocity = 0;
         this.smoothedVelocity = 0;
-        this.rotationCount = 0;
         this.regularityScore = 100;
         this.totalSamples = 0;
         this.accurateSamples = 0;
+        this.startTime = null;
+        this.elapsedTime = 0;
+        this.sampleCount = 0;
+        this.samplesForDetection = [];
+        this.conversionFactor = 1.0;
+        this.autoDetectConversion = true;
+    }
+
+    /**
+     * NOUVEAU : Détecte automatiquement le facteur de conversion des données gyro
+     * Les capteurs WITMOTION peuvent envoyer des valeurs brutes qui nécessitent une conversion
+     * @param {number} rawValue - Valeur brute du gyroscope
+     * @returns {void}
+     */
+    detectConversionFactor(rawValue) {
+        if (!this.autoDetectConversion) return;
+        
+        // Collecter des échantillons
+        if (Math.abs(rawValue) > 100 && this.samplesForDetection.length < this.maxSamplesForDetection) {
+            this.samplesForDetection.push(Math.abs(rawValue));
+        }
+        
+        // Analyser après avoir collecté suffisamment d'échantillons
+        if (this.samplesForDetection.length >= this.maxSamplesForDetection) {
+            const avgValue = this.samplesForDetection.reduce((a, b) => a + b, 0) / this.samplesForDetection.length;
+            
+            // Si les valeurs sont autour de 4000, c'est probablement des raw data
+            // Les capteurs WITMOTION BWT901 ont souvent un facteur ~16 ou 32
+            if (avgValue > 2000) {
+                // Détection du facteur : on cherche à ramener vers 360°/s
+                this.conversionFactor = avgValue / 360;
+                console.log(`[HeartOfFrostExercise] Facteur de conversion détecté: ${this.conversionFactor.toFixed(2)} (avg: ${avgValue.toFixed(0)})`);
+            }
+            
+            this.autoDetectConversion = false;
+        }
     }
 
     /**
      * Mise à jour avec données capteur
-     * @param {Object} sensorData - Données des capteurs
-     * @param {{x: number, y: number, z: number}} sensorData.gyro - Données gyroscope
+     * 
+     * @param {Object} sensorData - Données des capteurs depuis RunExerciseUseCase
+     * @param {string} sensorData.type - Type de données ('gyro')
+     * @param {{x: number, y: number, z: number}} sensorData.data - Données gyroscope
+     * @param {boolean} sensorData.isValid - Validité des données
      * @returns {ExerciseUpdateResult} - Résultat de la mise à jour
      */
     update(sensorData) {
@@ -173,64 +212,104 @@ class HeartOfFrostExercise extends Exercise {
             throw new Error('Aucun niveau actif');
         }
 
-        // 1. Extraire vitesse angulaire Y
-        const angularVelocityY = sensorData.gyro.y;
+        // Calculer le temps écoulé
+        if (this.startTime) {
+            this.elapsedTime = (Date.now() - this.startTime) / 1000;
+        }
+
+        // Extraire la valeur brute
+        let rawAngularVelocityY = sensorData.data.y;
         
-        // 2. Lisser
+        // NOUVEAU : Détection automatique du facteur de conversion
+        this.detectConversionFactor(rawAngularVelocityY);
+        
+        // Appliquer le facteur de conversion
+        let angularVelocityY = rawAngularVelocityY / this.conversionFactor;
+        
+        // Filtre anti-aberrations
+        if (Math.abs(angularVelocityY) > this.maxValidGyroValue) {
+            console.warn(`[HeartOfFrostExercise] Valeur aberrante filtrée: ${angularVelocityY.toFixed(2)}°/s (raw: ${rawAngularVelocityY.toFixed(2)})`);
+            return this.getCurrentState(level);
+        }
+        
+        // Incrémenter le compteur de samples
+        this.sampleCount++;
+        
+        // Logs de debug tous les 50 samples
+        if (this.sampleCount % 50 === 0) {
+            console.log(`[HeartOfFrostExercise] État:`, {
+                temps: `${this.elapsedTime.toFixed(1)}s / ${level.requirements.targetDuration}s`,
+                gyroY_raw: `${rawAngularVelocityY.toFixed(2)}`,
+                gyroY_converted: `${angularVelocityY.toFixed(2)}°/s`,
+                conversion: `x${this.conversionFactor.toFixed(2)}`,
+                smoothed: `${this.smoothedVelocity.toFixed(2)}°/s`,
+                ratio: (this.smoothedVelocity / this.targetDegreesPerSec).toFixed(2),
+                score: Math.round(this.regularityScore)
+            });
+        }
+        
+        // Lisser
         this.currentAngularVelocity = angularVelocityY;
         this.smoothedVelocity = this.smoothedVelocity * (1 - this.smoothingFactor) 
                               + angularVelocityY * this.smoothingFactor;
         
-        // 3. Calculer ratio
+        // Calculer ratio
         const velocityRatio = this.smoothedVelocity / this.targetDegreesPerSec;
         
-        // 4. Vérifier précision
+        // Vérifier précision
         const isAccurate = this.isVelocityAccurate(velocityRatio, level.requirements.tolerance);
         
-        // 5. Mettre à jour métriques
+        // Mettre à jour métriques
         this.totalSamples++;
         if (isAccurate) {
             this.accurateSamples++;
         }
         
-        // 6. Score de régularité
+        // Score de régularité
         this.updateRegularityScore(velocityRatio, level.requirements.tolerance);
         
-        // 7. Compter rotations (simplifié)
-        this.updateRotationCount(this.smoothedVelocity);
-        
-        // 8. Calculer playback rate
+        // Calculer playback rate
         const playbackRate = this.calculatePlaybackRate(velocityRatio);
         
-        // 9. Volume selon régularité
+        // Volume selon régularité
         const volume = this.calculateVolume();
         
-        // 10. Feedback
+        // Feedback
         const feedback = this.getFeedback(velocityRatio, level.requirements.tolerance);
+        
+        // Vérifier si temps écoulé
+        const isCompleted = this.elapsedTime >= level.requirements.targetDuration;
         
         return {
             playbackRate,
             volume,
             regularityScore: Math.round(this.regularityScore),
-            rotationCount: this.rotationCount,
-            targetRotations: level.requirements.targetRotations,
+            elapsedTime: Math.round(this.elapsedTime),
+            targetDuration: level.requirements.targetDuration,
             accuracy: this.getAccuracy(),
             feedback,
-            isCompleted: this.isCompleted()
+            isCompleted
         };
     }
 
     /**
-     * Met à jour le compteur de rotations
-     * @param {number} angularVelocity - Vitesse angulaire
-     * @returns {void}
+     * Retourne l'état actuel sans mise à jour (pour filtrage aberrations)
+     * @param {*} level - Niveau actuel
+     * @returns {ExerciseUpdateResult}
      */
-    updateRotationCount(angularVelocity) {
-        // Simplification : on compte approximativement
-        // En production, utiliser un intégrateur plus robuste
-        if (Math.abs(angularVelocity) > 180 && this.totalSamples % 10 === 0) {
-            this.rotationCount++;
-        }
+    getCurrentState(level) {
+        const velocityRatio = this.smoothedVelocity / this.targetDegreesPerSec;
+        
+        return {
+            playbackRate: this.calculatePlaybackRate(velocityRatio),
+            volume: this.calculateVolume(),
+            regularityScore: Math.round(this.regularityScore),
+            elapsedTime: Math.round(this.elapsedTime),
+            targetDuration: level.requirements.targetDuration,
+            accuracy: this.getAccuracy(),
+            feedback: this.getFeedback(velocityRatio, level.requirements.tolerance),
+            isCompleted: this.elapsedTime >= level.requirements.targetDuration
+        };
     }
 
     /**
@@ -239,7 +318,7 @@ class HeartOfFrostExercise extends Exercise {
      * @returns {number} - Playback rate (0.1-2.0)
      */
     calculatePlaybackRate(velocityRatio) {
-        // Mauvais sens → inversion
+        // Mauvais sens -> inversion
         if (velocityRatio < -0.1) {
             return Math.max(-2.0, velocityRatio);
         }
@@ -297,7 +376,7 @@ class HeartOfFrostExercise extends Exercise {
         if (velocityRatio < -0.1) {
             return { 
                 type: 'error', 
-                message: '⚠️ Sens de rotation inversé !', 
+                message: 'Sens de rotation inversé', 
                 color: '#e74c3c' 
             };
         }
@@ -305,7 +384,7 @@ class HeartOfFrostExercise extends Exercise {
         if (absRatio < (1.0 - tolerance)) {
             return { 
                 type: 'warning', 
-                message: '🐌 Trop lent', 
+                message: 'Trop lent', 
                 color: '#3498db' 
             };
         }
@@ -313,26 +392,16 @@ class HeartOfFrostExercise extends Exercise {
         if (absRatio > (1.0 + tolerance)) {
             return { 
                 type: 'warning', 
-                message: '🚀 Trop rapide', 
+                message: 'Trop rapide', 
                 color: '#f39c12' 
             };
         }
         
         return { 
             type: 'success', 
-            message: '✨ Parfait !', 
+            message: 'Parfait', 
             color: '#2ecc71' 
         };
-    }
-
-    /**
-     * Vérifie si l'exercice est complété
-     * @returns {boolean} - True si complété
-     */
-    isCompleted() {
-        const level = this.getCurrentLevel();
-        if (!level) return false;
-        return this.rotationCount >= level.requirements.targetRotations;
     }
 
     /**
@@ -354,6 +423,17 @@ class HeartOfFrostExercise extends Exercise {
     }
 
     /**
+     * CORRECTION CRITIQUE : Méthode isCompleted() manquante
+     * Vérifie si l'exercice est complété
+     * @returns {boolean} - True si complété
+     */
+    isCompleted() {
+        const level = this.getCurrentLevel();
+        if (!level) return false;
+        return this.elapsedTime >= level.requirements.targetDuration;
+    }
+
+    /**
      * Retourne l'état inactif de l'exercice
      * @returns {ExerciseUpdateResult} - État inactif
      */
@@ -362,8 +442,8 @@ class HeartOfFrostExercise extends Exercise {
             playbackRate: 1.0,
             volume: 0.7,
             regularityScore: 0,
-            rotationCount: 0,
-            targetRotations: 0,
+            elapsedTime: 0,
+            targetDuration: 120,
             accuracy: 0,
             feedback: { type: 'info', message: 'Prêt à commencer ?', color: '#95a5a6' },
             isCompleted: false
