@@ -13,6 +13,11 @@ const { EventEmitter } = require('events');
  * ORCHESTRATEUR D'EXERCICES
  * Coordonne les exercices entre capteurs et audio
  * S'intègre avec BluetoothOrchestrator et AudioOrchestrator existants
+ * 
+ * GESTION DES CONFLITS AUDIO (v7.0) :
+ * - Désactive l'IMUController en mode exercice
+ * - Réactive l'IMUController après l'exercice
+ * - Assure un contrôle exclusif de l'audio par l'exercice
  */
 class ExerciseOrchestrator {
     constructor({
@@ -36,6 +41,9 @@ class ExerciseOrchestrator {
         this.currentExercise = null;
         this.isRunning = false;
         this.connectedSensor = null;
+        
+        // NOUVEAU : Sauvegarde de l'état IMU avant exercice
+        this.imuWasEnabled = false;
         
         console.log('[ExerciseOrchestrator] Créé');
     }
@@ -119,6 +127,9 @@ class ExerciseOrchestrator {
             console.log('[ExerciseOrchestrator] 🎉 Exercice complété !', data);
             this.isRunning = false;
             
+            // NOUVEAU : Restaurer l'état IMU
+            this._restoreIMUMode();
+            
             if (this.exerciseUIController) {
                 this.exerciseUIController.showExerciseCompleted(data);
             }
@@ -129,10 +140,52 @@ class ExerciseOrchestrator {
             console.log('[ExerciseOrchestrator] Exercice arrêté');
             this.isRunning = false;
             
+            // NOUVEAU : Restaurer l'état IMU
+            this._restoreIMUMode();
+            
             if (this.exerciseUIController) {
                 this.exerciseUIController.showExerciseStopped();
             }
         });
+    }
+
+    /**
+     * NOUVEAU : Passe en mode exercice (désactive l'IMU)
+     * @private
+     */
+    _enterExerciseMode() {
+        console.log('[ExerciseOrchestrator] === PASSAGE EN MODE EXERCICE ===');
+        
+        // Sauvegarder l'état actuel de l'IMU
+        this.imuWasEnabled = this.state.getIMUToAudioEnabled() || false;
+        
+        console.log('[ExerciseOrchestrator] IMU était:', this.imuWasEnabled ? 'ACTIVÉ' : 'DÉSACTIVÉ');
+        
+        // Désactiver l'IMU pour éviter les conflits
+        if (this.imuWasEnabled) {
+            console.log('[ExerciseOrchestrator] 🔒 Désactivation IMU pour mode exercice');
+            this.audioOrchestrator.toggleIMU(false);
+        }
+        
+        console.log('[ExerciseOrchestrator] ✓ Mode exercice actif - L\'exercice a le contrôle exclusif de l\'audio');
+    }
+
+    /**
+     * NOUVEAU : Restaure le mode libre (réactive l'IMU si nécessaire)
+     * @private
+     */
+    _restoreIMUMode() {
+        console.log('[ExerciseOrchestrator] === RETOUR EN MODE LIBRE ===');
+        
+        // Réactiver l'IMU s'il était activé avant
+        if (this.imuWasEnabled) {
+            console.log('[ExerciseOrchestrator] 🔓 Réactivation IMU');
+            this.audioOrchestrator.toggleIMU(true);
+        } else {
+            console.log('[ExerciseOrchestrator] IMU reste désactivé (était désactivé avant)');
+        }
+        
+        console.log('[ExerciseOrchestrator] ✓ Mode libre restauré');
     }
 
     /**
@@ -169,6 +222,9 @@ class ExerciseOrchestrator {
         try {
             console.log('[ExerciseOrchestrator] Démarrage Heart of Frost - Niveau', levelIndex + 1);
 
+            // NOUVEAU : Passer en mode exercice
+            this._enterExerciseMode();
+
             // 1. Créer l'instance de l'exercice
             const exercise = new HeartOfFrostExercise();
             this.currentExercise = exercise;
@@ -192,6 +248,10 @@ class ExerciseOrchestrator {
 
         } catch (error) {
             console.error('[ExerciseOrchestrator] Erreur démarrage exercice:', error);
+            
+            // NOUVEAU : Restaurer l'IMU en cas d'erreur
+            this._restoreIMUMode();
+            
             alert('Erreur : ' + error.message);
             return false;
         }
@@ -209,6 +269,9 @@ class ExerciseOrchestrator {
         this.runExerciseUseCase.stop();
         this.isRunning = false;
         this.currentExercise = null;
+        
+        // NOUVEAU : Restaurer l'IMU
+        this._restoreIMUMode();
     }
 
     /**

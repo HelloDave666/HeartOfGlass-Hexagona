@@ -124,8 +124,14 @@ class RunExerciseUseCase {
                 // Mettre à jour l'exercice avec les données gyro
                 const result = this.currentExercise.update(parsedData);
 
-                // Appliquer le feedback audio
-                this.audioService.setPlaybackRate(result.playbackRate, 1);
+                // CORRECTION CRITIQUE : Extraire la direction depuis le signe du playbackRate
+                // Le GranularSynthesisAdapter attend (rate, direction) où :
+                // - rate = valeur absolue
+                // - direction = +1 (forward) ou -1 (backward)
+                const direction = result.playbackRate >= 0 ? 1 : -1;
+
+                // Appliquer le feedback audio avec la bonne direction
+                this.audioService.setPlaybackRate(result.playbackRate, direction);
                 this.audioService.setVolume(result.volume);
 
                 // Émettre événement pour l'UI avec toutes les métriques
