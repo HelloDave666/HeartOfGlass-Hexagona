@@ -1,11 +1,14 @@
 // @ts-nocheck
 /**
- * HeartOfFrostExercise.js - Exercice de rotation régulière (v5.1)
+ * HeartOfFrostExercise.js - Exercice de rotation régulière (v6.0)
  * Chemin: src/core/domain/exercises/glass/HeartOfFrostExercise.js
  * 
- * CORRECTIONS v5.1 :
- * - Tolérance élargie à 40% pour zone de régularité plus confortable
- * - Durée d'exercice augmentée à 2 minutes pour tests approfondis
+ * REFONTE COMPLETE v6.0 :
+ * - Logique type "platine vinyle" : vitesse rotation = vitesse audio DIRECTE
+ * - Pas de ratio complexe, juste : playbackRate = smoothedVelocity / targetDegreesPerSec
+ * - Limites élargies : 0.1x à 2.5x pour plus de confort
+ * - Durée augmentée à 4 minutes
+ * - Logs ultra-détaillés pour diagnostic
  */
 
 // ========================================
@@ -30,7 +33,7 @@ const ExerciseLevel = require(path.join(projectRoot, 'src', 'core', 'domain', 'e
 
 /**
  * @typedef {Object} ExerciseUpdateResult
- * @property {number} playbackRate - Vitesse de lecture audio (0.1-2.0)
+ * @property {number} playbackRate - Vitesse de lecture audio (-2.5 à +2.5)
  * @property {number} volume - Volume audio (0-1)
  * @property {number} regularityScore - Score de régularité (0-100)
  * @property {number} elapsedTime - Temps écoulé en secondes
@@ -45,14 +48,15 @@ const ExerciseLevel = require(path.join(projectRoot, 'src', 'core', 'domain', 'e
 // ========================================
 
 /**
- * Exercice "Cœur de givre" - Rotation régulière sur l'axe Y pendant 2 minutes
+ * Exercice "Cœur de givre" - Rotation régulière sur l'axe Y pendant 4 minutes
+ * LOGIQUE PLATINE VINYLE : Vitesse rotation = Vitesse audio
  * @extends Exercise
  */
 class HeartOfFrostExercise extends Exercise {
     constructor() {
         super('heart-of-frost', {
             name: 'Cœur de givre',
-            description: 'Maintiens une rotation régulière pendant 2 minutes',
+            description: 'Maintiens une rotation régulière pendant 4 minutes',
             craft: 'glass',
             levels: HeartOfFrostExercise.createLevels()
         });
@@ -62,6 +66,10 @@ class HeartOfFrostExercise extends Exercise {
         this.targetDegreesPerSec = 360;
         this.tolerance = 0.40;
         this.smoothingFactor = 0.3;
+        
+        // Limites de vitesse audio - ELARGIES
+        this.minAbsPlaybackRate = 0.1;
+        this.maxAbsPlaybackRate = 2.5;
         
         // NOUVEAU : Détection automatique du facteur de conversion
         this.conversionFactor = 1.0;
@@ -93,9 +101,9 @@ class HeartOfFrostExercise extends Exercise {
             new ExerciseLevel({
                 number: 1,
                 name: 'Découverte',
-                description: 'Maintiens une rotation régulière pendant 2 minutes',
+                description: 'Maintiens une rotation régulière pendant 4 minutes',
                 requirements: {
-                    targetDuration: 120,
+                    targetDuration: 240,
                     targetRPM: 60,
                     tolerance: 0.40
                 },
@@ -105,9 +113,9 @@ class HeartOfFrostExercise extends Exercise {
             new ExerciseLevel({
                 number: 2,
                 name: 'Pratique',
-                description: 'Maintiens une rotation régulière pendant 2 minutes avec plus de précision',
+                description: 'Maintiens une rotation régulière pendant 4 minutes avec plus de précision',
                 requirements: {
-                    targetDuration: 120,
+                    targetDuration: 240,
                     targetRPM: 60,
                     tolerance: 0.30
                 },
@@ -124,7 +132,7 @@ class HeartOfFrostExercise extends Exercise {
     onStart() {
         this.resetMetrics();
         this.startTime = Date.now();
-        console.log('[HeartOfFrostExercise] Démarrage chronométrage - Durée: 2 minutes');
+        console.log('[HeartOfFrostExercise] Démarrage - Durée: 4 minutes - LOGIQUE PLATINE VINYLE');
     }
 
     /**
@@ -235,28 +243,38 @@ class HeartOfFrostExercise extends Exercise {
         // Incrémenter le compteur de samples
         this.sampleCount++;
         
-        // Logs de debug tous les 50 samples
-        if (this.sampleCount % 50 === 0) {
-            console.log(`[HeartOfFrostExercise] État:`, {
-                temps: `${this.elapsedTime.toFixed(1)}s / ${level.requirements.targetDuration}s`,
-                gyroY_raw: `${rawAngularVelocityY.toFixed(2)}`,
-                gyroY_converted: `${angularVelocityY.toFixed(2)}°/s`,
-                conversion: `x${this.conversionFactor.toFixed(2)}`,
-                smoothed: `${this.smoothedVelocity.toFixed(2)}°/s`,
-                ratio: (this.smoothedVelocity / this.targetDegreesPerSec).toFixed(2),
-                score: Math.round(this.regularityScore)
-            });
-        }
-        
         // Lisser
         this.currentAngularVelocity = angularVelocityY;
         this.smoothedVelocity = this.smoothedVelocity * (1 - this.smoothingFactor) 
                               + angularVelocityY * this.smoothingFactor;
         
-        // Calculer ratio
+        // Calculer playback rate DIRECT (comme une platine vinyle)
+        const playbackRate = this.calculatePlaybackRate(this.smoothedVelocity);
+        
+        // Logs de debug tous les 50 samples avec DETAILS COMPLETS
+        if (this.sampleCount % 50 === 0) {
+            console.log(`[HeartOfFrostExercise] DIAGNOSTIC COMPLET:`, {
+                temps: `${this.elapsedTime.toFixed(1)}s / ${level.requirements.targetDuration}s`,
+                raw: `${rawAngularVelocityY.toFixed(2)}`,
+                converted: `${angularVelocityY.toFixed(2)}°/s`,
+                smoothed: `${this.smoothedVelocity.toFixed(2)}°/s`,
+                target: `${this.targetDegreesPerSec}°/s`,
+                CALCUL_PLAYBACK: {
+                    formule: 'smoothed / target',
+                    calcul: `${this.smoothedVelocity.toFixed(2)} / ${this.targetDegreesPerSec}`,
+                    resultat_brut: (this.smoothedVelocity / this.targetDegreesPerSec).toFixed(3),
+                    resultat_final: `${playbackRate.toFixed(3)}x`,
+                    signe: playbackRate >= 0 ? 'POSITIF' : 'NEGATIF'
+                },
+                direction: this.smoothedVelocity >= 0 ? 'HORAIRE (+)' : 'ANTI-HORAIRE (-)',
+                score: Math.round(this.regularityScore)
+            });
+        }
+        
+        // Calculer ratio pour les métriques
         const velocityRatio = this.smoothedVelocity / this.targetDegreesPerSec;
         
-        // Vérifier précision
+        // Vérifier précision (SYMETRIQUE)
         const isAccurate = this.isVelocityAccurate(velocityRatio, level.requirements.tolerance);
         
         // Mettre à jour métriques
@@ -265,16 +283,13 @@ class HeartOfFrostExercise extends Exercise {
             this.accurateSamples++;
         }
         
-        // Score de régularité
+        // Score de régularité (SYMETRIQUE)
         this.updateRegularityScore(velocityRatio, level.requirements.tolerance);
-        
-        // Calculer playback rate
-        const playbackRate = this.calculatePlaybackRate(velocityRatio);
         
         // Volume selon régularité
         const volume = this.calculateVolume();
         
-        // Feedback
+        // Feedback (SYMETRIQUE)
         const feedback = this.getFeedback(velocityRatio, level.requirements.tolerance);
         
         // Vérifier si temps écoulé
@@ -301,7 +316,7 @@ class HeartOfFrostExercise extends Exercise {
         const velocityRatio = this.smoothedVelocity / this.targetDegreesPerSec;
         
         return {
-            playbackRate: this.calculatePlaybackRate(velocityRatio),
+            playbackRate: this.calculatePlaybackRate(this.smoothedVelocity),
             volume: this.calculateVolume(),
             regularityScore: Math.round(this.regularityScore),
             elapsedTime: Math.round(this.elapsedTime),
@@ -313,22 +328,42 @@ class HeartOfFrostExercise extends Exercise {
     }
 
     /**
-     * Calcule la vitesse de lecture audio
-     * @param {number} velocityRatio - Ratio de vitesse
-     * @returns {number} - Playback rate (0.1-2.0)
+     * Calcule la vitesse de lecture audio - LOGIQUE PLATINE VINYLE REFAITE
+     * 
+     * NOUVELLE LOGIQUE v6.0 - ULTRA SIMPLE :
+     * playbackRate = smoothedVelocity / targetDegreesPerSec
+     * 
+     * Exemples CONCRETS :
+     * - 180°/s (moitié vitesse) → 180/360 = 0.5 → 0.5x
+     * - 360°/s (vitesse normale) → 360/360 = 1.0 → 1.0x
+     * - 540°/s (1.5x plus vite) → 540/360 = 1.5 → 1.5x
+     * - 720°/s (2x plus vite) → 720/360 = 2.0 → 2.0x
+     * - 900°/s (2.5x plus vite) → 900/360 = 2.5 → 2.5x (limite)
+     * 
+     * - -180°/s (moitié vitesse inversée) → -180/360 = -0.5 → -0.5x
+     * - -360°/s (vitesse normale inversée) → -360/360 = -1.0 → -1.0x
+     * - -720°/s (2x plus vite inversée) → -720/360 = -2.0 → -2.0x
+     * 
+     * @param {number} smoothedVelocity - Vitesse lissée en °/s (peut être positive ou négative)
+     * @returns {number} - Playback rate (-2.5 à +2.5)
      */
-    calculatePlaybackRate(velocityRatio) {
-        // Mauvais sens -> inversion
-        if (velocityRatio < -0.1) {
-            return Math.max(-2.0, velocityRatio);
-        }
+    calculatePlaybackRate(smoothedVelocity) {
+        // CALCUL DIRECT : ratio = vitesse / cible
+        const rawPlaybackRate = smoothedVelocity / this.targetDegreesPerSec;
         
-        // Mapper vers 0.1 - 2.0
-        return Math.max(0.1, Math.min(2.0, Math.abs(velocityRatio)));
+        // Appliquer les limites selon le signe
+        if (rawPlaybackRate >= 0) {
+            // Positif : limiter entre minAbsPlaybackRate et maxAbsPlaybackRate
+            return Math.max(this.minAbsPlaybackRate, Math.min(this.maxAbsPlaybackRate, rawPlaybackRate));
+        } else {
+            // Négatif : limiter entre -maxAbsPlaybackRate et -minAbsPlaybackRate
+            return Math.max(-this.maxAbsPlaybackRate, Math.min(-this.minAbsPlaybackRate, rawPlaybackRate));
+        }
     }
 
     /**
-     * Vérifie si la vitesse est dans la tolérance
+     * Vérifie si la vitesse est dans la tolérance - SYMETRIQUE
+     * Accepte AUSSI BIEN +360°/s que -360°/s
      * @param {number} velocityRatio - Ratio de vitesse
      * @param {number} tolerance - Tolérance (0-1)
      * @returns {boolean} - True si dans la tolérance
@@ -339,7 +374,7 @@ class HeartOfFrostExercise extends Exercise {
     }
 
     /**
-     * Met à jour le score de régularité
+     * Met à jour le score de régularité - SYMETRIQUE
      * @param {number} velocityRatio - Ratio de vitesse
      * @param {number} tolerance - Tolérance
      * @returns {void}
@@ -365,7 +400,8 @@ class HeartOfFrostExercise extends Exercise {
     }
 
     /**
-     * Génère un feedback visuel
+     * Génère un feedback visuel - SYMETRIQUE
+     * Pas de notion de "sens inversé", les deux sens sont valides
      * @param {number} velocityRatio - Ratio de vitesse
      * @param {number} tolerance - Tolérance
      * @returns {ExerciseFeedback} - Feedback
@@ -373,14 +409,7 @@ class HeartOfFrostExercise extends Exercise {
     getFeedback(velocityRatio, tolerance) {
         const absRatio = Math.abs(velocityRatio);
         
-        if (velocityRatio < -0.1) {
-            return { 
-                type: 'error', 
-                message: 'Sens de rotation inversé', 
-                color: '#e74c3c' 
-            };
-        }
-        
+        // Vérifier la vitesse (peu importe le sens)
         if (absRatio < (1.0 - tolerance)) {
             return { 
                 type: 'warning', 
@@ -443,7 +472,7 @@ class HeartOfFrostExercise extends Exercise {
             volume: 0.7,
             regularityScore: 0,
             elapsedTime: 0,
-            targetDuration: 120,
+            targetDuration: 240,
             accuracy: 0,
             feedback: { type: 'info', message: 'Prêt à commencer ?', color: '#95a5a6' },
             isCompleted: false
