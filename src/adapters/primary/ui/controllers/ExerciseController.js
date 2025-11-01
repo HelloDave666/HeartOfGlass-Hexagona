@@ -131,10 +131,8 @@ class ExerciseController {
       return;
     }
 
-    if (!this.state.getSensors().left || !this.state.getSensors().right) {
-      this.updateStatus('❌ Connectez les capteurs !', 'error');
-      return;
-    }
+    // Note: On ne vérifie pas explicitement les capteurs car ils peuvent se connecter pendant l'exercice
+    // L'utilisateur verra le feedback en temps réel s'ils sont connectés ou non
 
     // Activation de l'exercice
     this.isExerciseActive = true;
