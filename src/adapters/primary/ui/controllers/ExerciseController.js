@@ -42,19 +42,21 @@ class ExerciseController {
 
     // Configuration Heart Of Frost
     this.frostConfig = {
-      neutralZone: 5, // Zone neutre autour de 0° (±5°)
-      maxAngle: 45, // Angle maximal pour atteindre la vitesse max (45°)
+      targetRotationSpeed: 90, // Vitesse de rotation régulière cible (°/s) - environ 1 rotation/4s
+      speedTolerance: 30, // Tolérance pour zone régulière (±30°/s)
       minSpeed: 0.1,
       maxSpeed: 3.0,
-      smoothingFactor: 0.3
+      smoothingFactor: 0.2, // Lissage plus réactif
+      accelerationFactor: 0.02 // Facteur pour mapper vitesse → playback rate
     };
 
     // État de la rotation
     this.rotationState = {
-      currentAngle: 0,
-      direction: 1,
-      playbackRate: 1.0,
-      isInNeutralZone: true
+      currentAngularVelocity: 0,
+      previousDirection: 1, // 1 = sens positif, -1 = sens négatif
+      currentDirection: 1,
+      isRegular: false,
+      playbackRate: 1.0
     };
 
     // Stockage des handlers pour cleanup
@@ -169,10 +171,11 @@ class ExerciseController {
 
     // Réinitialiser l'état de rotation
     this.rotationState = {
-      currentAngle: 0,
-      direction: 1,
-      playbackRate: 1.0,
-      isInNeutralZone: true
+      currentAngularVelocity: 0,
+      previousDirection: 1,
+      currentDirection: 1,
+      isRegular: false,
+      playbackRate: 1.0
     };
 
     // Réinitialiser la vitesse audio à 1x
@@ -195,10 +198,10 @@ class ExerciseController {
 
   /**
    * Traite les données IMU pour l'exercice Heart Of Frost
-   * LOGIQUE LINÉAIRE : Basée sur la POSITION angulaire, pas la vitesse
+   * LOGIQUE RÉGULARITÉ : Détecte si la rotation est régulière, trop rapide, trop lente, ou inversée
    * @param {string} position - "GAUCHE" ou "DROIT"
    * @param {Object} angles - Angles du capteur { x, y, z }
-   * @param {number} angularVelocity - Vitesse angulaire (°/s) - non utilisée
+   * @param {number} angularVelocity - Vitesse angulaire (°/s)
    * @public
    */
   processIMUData(position, angles, angularVelocity) {
@@ -212,38 +215,55 @@ class ExerciseController {
       return;
     }
 
-    // Récupérer l'angle Y (inclinaison avant/arrière)
-    const currentAngle = angles.y;
-    this.rotationState.currentAngle = currentAngle;
+    // Stocker la vitesse angulaire actuelle
+    this.rotationState.currentAngularVelocity = angularVelocity;
 
-    // Déterminer si on est dans la zone neutre
-    const neutralZone = this.frostConfig.neutralZone;
-    const isInNeutralZone = Math.abs(currentAngle) <= neutralZone;
-    this.rotationState.isInNeutralZone = isInNeutralZone;
+    // Déterminer le sens de rotation actuel
+    const absVelocity = Math.abs(angularVelocity);
+    const currentDirection = angularVelocity >= 0 ? 1 : -1;
 
-    // Calculer le playback rate et la direction
+    // Détecter une inversion de sens
+    const hasDirectionChanged = (currentDirection !== this.rotationState.previousDirection);
+
+    // Déterminer si la rotation est régulière
+    const targetSpeed = this.frostConfig.targetRotationSpeed;
+    const tolerance = this.frostConfig.speedTolerance;
+    const isRegular = absVelocity >= (targetSpeed - tolerance) &&
+                      absVelocity <= (targetSpeed + tolerance);
+
+    this.rotationState.isRegular = isRegular;
+    this.rotationState.currentDirection = currentDirection;
+
+    // Calculer le playback rate et la direction de lecture
     let playbackRate;
-    let direction;
+    let playbackDirection;
 
-    if (isInNeutralZone) {
-      // Zone neutre : vitesse normale
+    if (hasDirectionChanged) {
+      // INVERSION DE SENS : Ralentir puis inverser la lecture
+      playbackRate = Math.max(0.5, 1.0 - (absVelocity * 0.01));
+      playbackDirection = currentDirection; // Suivre le nouveau sens
+
+      console.log('[HeartOfFrost] Inversion détectée !', {
+        previous: this.rotationState.previousDirection,
+        current: currentDirection,
+        velocity: angularVelocity
+      });
+    } else if (isRegular) {
+      // ROTATION RÉGULIÈRE : Vitesse normale 1.0x
       playbackRate = 1.0;
-      direction = 1;
+      playbackDirection = currentDirection;
+    } else if (absVelocity > (targetSpeed + tolerance)) {
+      // TROP RAPIDE : Accélération
+      const excess = absVelocity - targetSpeed;
+      playbackRate = 1.0 + (excess * this.frostConfig.accelerationFactor);
+      playbackRate = Math.min(this.frostConfig.maxSpeed, playbackRate);
+      playbackDirection = currentDirection;
     } else {
-      // Hors zone neutre : mapper linéairement l'angle vers le playback rate
-      const angleFromNeutral = Math.abs(currentAngle) - neutralZone;
-      const maxAngle = this.frostConfig.maxAngle;
-
-      // Mapper linéairement de neutralZone à maxAngle → 1.0x à 3.0x
-      const normalizedAngle = Math.min(angleFromNeutral / maxAngle, 1.0);
-      playbackRate = 1.0 + (normalizedAngle * (this.frostConfig.maxSpeed - 1.0));
-
-      // Limiter entre min et max
-      playbackRate = Math.max(this.frostConfig.minSpeed,
-                             Math.min(this.frostConfig.maxSpeed, playbackRate));
-
-      // Direction : positif = avant, négatif = arrière
-      direction = currentAngle >= 0 ? 1 : -1;
+      // TROP LENT : Ralentissement
+      const deficit = targetSpeed - absVelocity;
+      playbackRate = 1.0 - (deficit * this.frostConfig.accelerationFactor * 0.5);
+      playbackRate = Math.max(this.frostConfig.minSpeed, playbackRate);
+      playbackDirection = currentDirection;
     }
 
     // Lissage du playback rate pour éviter les variations brusques
@@ -251,13 +271,14 @@ class ExerciseController {
       this.rotationState.playbackRate * (1 - this.frostConfig.smoothingFactor) +
       playbackRate * this.frostConfig.smoothingFactor;
 
-    this.rotationState.direction = direction;
+    // Mettre à jour le sens précédent
+    this.rotationState.previousDirection = currentDirection;
 
     // Appliquer à l'audio
     if (this.audioOrchestrator) {
       this.audioOrchestrator.setPlaybackRate(
         this.rotationState.playbackRate,
-        this.rotationState.direction
+        playbackDirection
       );
     }
 
@@ -273,41 +294,37 @@ class ExerciseController {
    * @private
    */
   updateExerciseFeedback() {
-    const angle = this.rotationState.currentAngle;
+    const velocity = this.rotationState.currentAngularVelocity;
+    const absVelocity = Math.abs(velocity);
     const rate = this.rotationState.playbackRate;
-    const direction = this.rotationState.direction;
-    const isInNeutralZone = this.rotationState.isInNeutralZone;
+    const direction = this.rotationState.currentDirection;
+    const isRegular = this.rotationState.isRegular;
 
     let feedback = '';
     let emoji = '';
+    const directionArrow = direction > 0 ? '→' : '←';
 
-    if (isInNeutralZone) {
+    if (isRegular) {
+      // Rotation régulière : PARFAIT !
       emoji = '✅';
-      feedback = `ZONE NEUTRE ! Vitesse normale (1.0x) | Angle: ${angle.toFixed(1)}°`;
-    } else if (direction > 0) {
-      // Inclinaison vers l'avant (positif)
+      feedback = `PARFAIT ! Rotation régulière (1.0x) | Vitesse: ${absVelocity.toFixed(1)}°/s ${directionArrow}`;
+    } else if (absVelocity > (this.frostConfig.targetRotationSpeed + this.frostConfig.speedTolerance)) {
+      // Trop rapide
       if (rate > 2.0) {
         emoji = '⚡⚡';
-        feedback = `Accélération RAPIDE ! (${rate.toFixed(2)}x) | Angle: ${angle.toFixed(1)}°`;
-      } else if (rate > 1.5) {
+        feedback = `TROP RAPIDE ! Accélération (${rate.toFixed(2)}x) | Vitesse: ${absVelocity.toFixed(1)}°/s ${directionArrow}`;
+      } else {
         emoji = '⚡';
-        feedback = `Accélération ! (${rate.toFixed(2)}x) | Angle: ${angle.toFixed(1)}°`;
-      } else {
-        emoji = '→';
-        feedback = `Accélération légère (${rate.toFixed(2)}x) | Angle: ${angle.toFixed(1)}°`;
+        feedback = `Un peu trop rapide (${rate.toFixed(2)}x) | Vitesse: ${absVelocity.toFixed(1)}°/s ${directionArrow}`;
       }
+    } else if (absVelocity < (this.frostConfig.targetRotationSpeed - this.frostConfig.speedTolerance)) {
+      // Trop lent
+      emoji = '🐌';
+      feedback = `Trop lent ! Ralentissement (${rate.toFixed(2)}x) | Vitesse: ${absVelocity.toFixed(1)}°/s ${directionArrow}`;
     } else {
-      // Inclinaison vers l'arrière (négatif)
-      if (rate > 2.0) {
-        emoji = '↩️↩️';
-        feedback = `Lecture INVERSE RAPIDE ! (${rate.toFixed(2)}x) | Angle: ${angle.toFixed(1)}°`;
-      } else if (rate > 1.5) {
-        emoji = '↩️';
-        feedback = `Lecture INVERSE ! (${rate.toFixed(2)}x) | Angle: ${angle.toFixed(1)}°`;
-      } else {
-        emoji = '←';
-        feedback = `Lecture inverse légère (${rate.toFixed(2)}x) | Angle: ${angle.toFixed(1)}°`;
-      }
+      // Cas par défaut
+      emoji = '⏸️';
+      feedback = `En rotation... (${rate.toFixed(2)}x) | Vitesse: ${absVelocity.toFixed(1)}°/s ${directionArrow}`;
     }
 
     this.updateFeedback(`${emoji} ${feedback}`);
