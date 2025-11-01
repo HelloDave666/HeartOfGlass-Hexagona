@@ -524,17 +524,209 @@ body {
     animation: pulse 2s ease-in-out infinite;
 }
 
+/* ====================================
+   ONGLET EXERCICES
+   ==================================== */
+
+.exercises-layout {
+    padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.exercises-intro {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.exercises-intro h2 {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+    background: linear-gradient(45deg, #00bfff, #ff69b4);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.intro-text {
+    font-size: 1.1rem;
+    color: #aaa;
+    max-width: 700px;
+    margin: 0 auto;
+}
+
+/* Liste des exercices */
+.exercises-list {
+    margin-bottom: 2rem;
+}
+
+.exercise-card {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 2px solid #00bfff;
+    border-radius: 12px;
+    padding: 2rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 4px 15px rgba(0, 191, 255, 0.2);
+    transition: all 0.3s ease;
+}
+
+.exercise-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 25px rgba(0, 191, 255, 0.3);
+}
+
+.exercise-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #333;
+}
+
+.exercise-header h3 {
+    font-size: 1.5rem;
+    color: #00bfff;
+}
+
+.exercise-level {
+    background: rgba(0, 191, 255, 0.2);
+    padding: 0.3rem 0.8rem;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    color: #00bfff;
+}
+
+.exercise-description {
+    margin-bottom: 1.5rem;
+}
+
+.exercise-description p {
+    margin-bottom: 0.5rem;
+    color: #ccc;
+}
+
+.exercise-description ul {
+    list-style: none;
+    padding-left: 1rem;
+}
+
+.exercise-description li {
+    padding: 0.3rem 0;
+    color: #aaa;
+}
+
+.exercise-status {
+    margin-bottom: 1rem;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+}
+
+.status-text {
+    font-weight: 600;
+    color: #00bfff;
+    margin-bottom: 0.5rem;
+}
+
+.feedback-text {
+    color: #aaa;
+    font-size: 0.95rem;
+}
+
+.exercise-controls {
+    display: flex;
+    gap: 1rem;
+}
+
+.exercise-button {
+    flex: 1;
+    padding: 1rem 2rem;
+    background: linear-gradient(135deg, #00bfff, #1e90ff);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-size: 1.1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(0, 191, 255, 0.3);
+}
+
+.exercise-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 191, 255, 0.4);
+}
+
+.exercise-button:active {
+    transform: translateY(0);
+}
+
+.exercise-button:disabled {
+    background: #555;
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.exercise-button-stop {
+    flex: 1;
+    padding: 1rem 2rem;
+    background: linear-gradient(135deg, #e74c3c, #c0392b);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-size: 1.1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.exercise-button-stop:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(231, 76, 60, 0.4);
+}
+
+/* Instructions */
+.exercise-instructions {
+    background: rgba(0, 0, 0, 0.3);
+    border-left: 4px solid #00bfff;
+    padding: 1.5rem;
+    border-radius: 8px;
+}
+
+.exercise-instructions h3 {
+    color: #00bfff;
+    margin-bottom: 1rem;
+}
+
+.exercise-instructions ol {
+    padding-left: 1.5rem;
+}
+
+.exercise-instructions li {
+    padding: 0.5rem 0;
+    color: #ccc;
+}
+
 /* Responsive */
 @media (max-width: 1200px) {
     .main-layout {
         grid-template-columns: 1fr;
     }
-    
+
     .sound-control-layout {
         grid-template-columns: 1fr;
     }
-    
+
     .settings-layout {
         grid-template-columns: 1fr;
+    }
+
+    .exercises-layout {
+        padding: 1rem;
+    }
+
+    .exercise-controls {
+        flex-direction: column;
     }
 }

@@ -74,30 +74,35 @@ let orchestrators = {};
 
 function updateAngles(position, angles) {
   controllers.sensorUIController.updateAngles(position, angles);
-  
+
   if (position === 'DROIT') {
     console.log(`[IMU] DROIT - Y: ${angles.y.toFixed(1)}° | IMU enabled: ${state.isIMUToAudioEnabled()} | Playing: ${state.getAudioState().isPlaying}`);
   }
-  
-  if (state.isIMUToAudioEnabled() && state.getAudioSystem() && state.getAudioState().isPlaying) {
-    const now = Date.now();
-    const side = position === 'GAUCHE' ? 'left' : 'right';
-    
-    const lastAngle = state.getLastAngles()[side];
-    const deltaTime = (now - lastAngle.timestamp) / 1000;
-    
-    if (deltaTime > 0) {
-      const angularVelocity = (angles.y - lastAngle.y) / deltaTime;
-      
+
+  // Calculer la vitesse angulaire
+  const now = Date.now();
+  const side = position === 'GAUCHE' ? 'left' : 'right';
+  const lastAngle = state.getLastAngles()[side];
+  const deltaTime = (now - lastAngle.timestamp) / 1000;
+
+  if (deltaTime > 0) {
+    const angularVelocity = (angles.y - lastAngle.y) / deltaTime;
+
+    // Si exercice actif, le transmettre au ExerciseController
+    if (controllers.exerciseController && controllers.exerciseController.isActive()) {
+      controllers.exerciseController.processIMUData(position, angles, angularVelocity);
+    }
+    // Sinon, mode normal avec IMU activé
+    else if (state.isIMUToAudioEnabled() && state.getAudioSystem() && state.getAudioState().isPlaying) {
       if (position === 'DROIT' && Math.abs(angularVelocity) > 1) {
         console.log(`[IMU→Audio] Vitesse angulaire: ${angularVelocity.toFixed(1)}°/s`);
       }
-      
+
       if (orchestrators.audio) {
         orchestrators.audio.applyIMUToAudio(position, angles, angularVelocity);
       }
     }
-    
+
     state.updateLastAngles(side, angles);
   }
 }
@@ -239,6 +244,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             controllers.audioUIController.updateVolumeDisplay(state.getAudioState());
           }
         }
+      },
+      exerciseCallbacks: {
+        onStartExercise: (exerciseName) => {
+          console.log(`[App] Exercice démarré: ${exerciseName}`);
+        },
+        onStopExercise: () => {
+          console.log('[App] Exercice arrêté');
+        },
+        audioOrchestrator: null // Sera défini après l'initialisation de AudioOrchestrator
       }
     }
   });
@@ -261,7 +275,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     imuController: controllers.imuController,
     audioConfig: AUDIO_CONFIG
   });
-  
+
+  // Injecter audioOrchestrator dans ExerciseController
+  if (controllers.exerciseController) {
+    controllers.exerciseController.audioOrchestrator = orchestrators.audio;
+  }
+
   const bluetoothOk = await orchestrators.bluetooth.initialize();
   const audioOk = await orchestrators.audio.initialize();
   

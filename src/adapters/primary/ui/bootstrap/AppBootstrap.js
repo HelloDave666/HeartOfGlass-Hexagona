@@ -11,6 +11,7 @@ const AudioUIController = require(path.join(projectRoot, 'src', 'adapters', 'pri
 const RecordingController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'RecordingController.js'));
 const TimelineController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'TimelineController.js'));
 const IMUController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'IMUController.js'));
+const ExerciseController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'ExerciseController.js'));
 
 /**
  * Module Bootstrap pour l'initialisation de tous les contrôleurs UI
@@ -37,6 +38,7 @@ class AppBootstrap {
     const recordingController = this.setupRecordingInterface(state, callbacks.recordingCallbacks);
     const timelineController = this.setupTimelineInterface(state, callbacks.timelineCallbacks);
     const imuController = this.setupIMUInterface(IMU_MAPPING, callbacks.imuCallbacks);
+    const exerciseController = this.setupExerciseInterface(state, callbacks.exerciseCallbacks);
 
     console.log('[AppBootstrap] ✓ Tous les contrôleurs initialisés');
 
@@ -46,7 +48,8 @@ class AppBootstrap {
       audioUIController,
       recordingController,
       timelineController,
-      imuController
+      imuController,
+      exerciseController
     };
   }
 
@@ -200,6 +203,33 @@ class AppBootstrap {
     
     console.log('[IMU] Interface IMU configurée');
     return imuController;
+  }
+
+  /**
+   * Setup ExerciseController
+   * @param {Object} state - StateManager
+   * @param {Object} callbacks - Callbacks exercise
+   * @returns {ExerciseController}
+   */
+  static setupExerciseInterface(state, callbacks) {
+    console.log('[Exercise] Configuration interface exercices...');
+
+    const exerciseController = new ExerciseController({
+      onStartExercise: callbacks.onStartExercise,
+      onStopExercise: callbacks.onStopExercise,
+      audioOrchestrator: callbacks.audioOrchestrator,
+      state: state
+    });
+
+    const initialized = exerciseController.initialize();
+
+    if (!initialized) {
+      console.error('[AppBootstrap] Échec initialisation ExerciseController');
+      return null;
+    }
+
+    console.log('[Exercise] Interface exercices configurée');
+    return exerciseController;
   }
 }
 

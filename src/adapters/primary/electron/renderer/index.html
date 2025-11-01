@@ -20,6 +20,7 @@
         <nav class="tab-navigation">
             <button class="tab-button active" data-tab="mainTab">Principal</button>
             <button class="tab-button" data-tab="soundTab">Sound Control</button>
+            <button class="tab-button" data-tab="exercisesTab">Exercices</button>
             <button class="tab-button" data-tab="settingsTab">Paramètres</button>
         </nav>
 
@@ -184,6 +185,60 @@
                             3️⃣ Cochez "Activer contrôle par capteurs IMU"<br>
                             4️⃣ Bougez les capteurs !
                         </p>
+                    </section>
+                </div>
+            </div>
+
+            <!-- Onglet Exercices -->
+            <div id="exercisesTab" class="tab-content">
+                <div class="exercises-layout">
+                    <section class="exercises-intro">
+                        <h2>🎯 Exercices Audio Interactifs</h2>
+                        <p class="intro-text">
+                            Apprenez à maîtriser le contrôle audio avec vos capteurs IMU à travers des exercices progressifs.
+                        </p>
+                    </section>
+
+                    <!-- Liste des exercices -->
+                    <section class="exercises-list">
+                        <div class="exercise-card">
+                            <div class="exercise-header">
+                                <h3>❄️ Heart Of Frost</h3>
+                                <span class="exercise-level">Niveau: Débutant</span>
+                            </div>
+                            <div class="exercise-description">
+                                <p><strong>Objectif:</strong> Contrôler la vitesse de lecture audio avec une rotation régulière du capteur droit.</p>
+                                <ul>
+                                    <li>🎵 Rotation régulière = lecture normale (1x)</li>
+                                    <li>⚡ Rotation rapide = accélération (max 3x)</li>
+                                    <li>🐌 Rotation lente = ralentissement (min 0.1x)</li>
+                                    <li>↩️ Rotation inverse = lecture arrière</li>
+                                </ul>
+                            </div>
+                            <div class="exercise-status">
+                                <p id="frostStatus" class="status-text">Prêt à démarrer</p>
+                                <p id="frostFeedback" class="feedback-text"></p>
+                            </div>
+                            <div class="exercise-controls">
+                                <button id="heartOfFrostButton" class="exercise-button">
+                                    Lancer Heart Of Frost
+                                </button>
+                                <button id="stopExerciseButton" class="exercise-button-stop" style="display: none;">
+                                    Arrêter l'exercice
+                                </button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Instructions -->
+                    <section class="exercise-instructions">
+                        <h3>📋 Instructions</h3>
+                        <ol>
+                            <li>Chargez un fichier audio dans l'onglet "Sound Control"</li>
+                            <li>Assurez-vous que vos capteurs sont connectés</li>
+                            <li>Cliquez sur "Lancer Heart Of Frost"</li>
+                            <li>Tournez régulièrement le capteur droit pour maintenir la vitesse normale</li>
+                        </ol>
                     </section>
                 </div>
             </div>
