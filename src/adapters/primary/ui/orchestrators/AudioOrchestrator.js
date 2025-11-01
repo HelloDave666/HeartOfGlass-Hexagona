@@ -298,10 +298,30 @@ class AudioOrchestrator {
   applyIMUToAudio(position, angles, angularVelocity) {
     const audioUI = this.audioUIController.getUIReferences();
     if (!audioUI.imuSensitivity || !this.state.getAudioSystem()) return;
-    
+
     const sensitivity = parseFloat(audioUI.imuSensitivity.value);
-    
+
     this.imuController.applyToAudio(position, angles, angularVelocity, this.state.getAudioSystem(), sensitivity);
+  }
+
+  /**
+   * Définit la vitesse de lecture et la direction
+   * @param {number} rate - Vitesse de lecture (0.1 à 3.0)
+   * @param {number} direction - Direction (1 = avant, -1 = arrière)
+   */
+  setPlaybackRate(rate, direction) {
+    if (!this.state.getAudioSystem()) {
+      console.warn('[AudioOrchestrator] Système audio non initialisé');
+      return;
+    }
+
+    this.state.getAudioSystem().setPlaybackRate(rate, direction);
+
+    // Mettre à jour l'affichage de la vitesse
+    if (this.audioUIController) {
+      const isNeutral = (Math.abs(rate - 1.0) < 0.05 && direction > 0);
+      this.audioUIController.updateSpeedDisplay(rate, direction, isNeutral);
+    }
   }
 
   /**

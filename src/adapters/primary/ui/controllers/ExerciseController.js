@@ -124,7 +124,7 @@ class ExerciseController {
     }
 
     const audioState = this.state.getAudioState();
-    const currentFile = this.state.getCurrentFile();
+    const currentFile = this.state.getCurrentAudioFile();
 
     if (!currentFile) {
       this.updateStatus('❌ Chargez d\'abord un fichier audio !', 'error');
@@ -142,7 +142,7 @@ class ExerciseController {
 
     // Démarrer la lecture audio si nécessaire
     if (!audioState.isPlaying && this.audioOrchestrator) {
-      this.audioOrchestrator.playPause();
+      this.audioOrchestrator.togglePlayPause();
     }
 
     // Mise à jour de l'interface
