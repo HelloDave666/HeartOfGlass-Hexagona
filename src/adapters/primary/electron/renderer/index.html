@@ -207,15 +207,15 @@
                                 <span class="exercise-level">Niveau: Débutant</span>
                             </div>
                             <div class="exercise-description">
-                                <p><strong>Objectif:</strong> Réaliser 100 rotations complètes (360°) du capteur droit de manière régulière.</p>
+                                <p><strong>Objectif:</strong> Maintenir une vitesse de rotation régulière avec le capteur droit.</p>
                                 <ul>
-                                    <li>✅ Rotations régulières (~3s par rotation) = lecture normale (1.0x) - PARFAIT !</li>
-                                    <li>⚡ Rotations trop rapides (sur plusieurs tours) = accélération du flux audio (jusqu'à 3.0x)</li>
-                                    <li>🐌 Rotations trop lentes (sur plusieurs tours) = ralentissement du flux audio</li>
-                                    <li>↩️ Inversion de sens de rotation = réinitialisation et adaptation</li>
+                                    <li>✅ Vitesse régulière (~90°/s ±20°/s) = lecture normale (1.0x) - PARFAIT !</li>
+                                    <li>⚡ Rotation trop rapide = accélération progressive du flux audio (jusqu'à 3.0x max)</li>
+                                    <li>🐌 Rotation trop lente = ralentissement du flux audio (jusqu'à 0.1x min)</li>
+                                    <li>🎯 Le système mesure la vitesse moyenne sur les 10 dernières mesures</li>
                                 </ul>
                                 <p style="margin-top: 0.5rem; color: #00bfff; font-weight: bold;">
-                                    🎯 Défi : Maintenir le même rythme pendant 100 rotations !
+                                    💡 Mode Exercice : Désactive le contrôle IMU normal pendant l'exercice
                                 </p>
                             </div>
                             <div class="exercise-status">
@@ -240,15 +240,19 @@
                             <li>Chargez un fichier audio dans l'onglet "Sound Control"</li>
                             <li>Connectez vos capteurs (onglet "Principal")</li>
                             <li>Cliquez sur "Lancer Heart Of Frost"</li>
-                            <li>Effectuez des <strong>rotations complètes (360°)</strong> avec le capteur droit</li>
-                            <li>Cible : <strong>environ 3 secondes par rotation</strong></li>
-                            <li>Le système calcule votre rythme moyen sur les 5 dernières rotations</li>
-                            <li>Maintenez un rythme régulier pour garder la vitesse audio normale ✅</li>
-                            <li>Si vous accélérez/ralentissez, l'audio s'ajuste automatiquement ⚡🐌</li>
-                            <li>Objectif : Compléter 100 rotations avec un rythme constant !</li>
+                            <li>Tournez le capteur droit à une <strong>vitesse régulière</strong></li>
+                            <li>Cible : <strong>~90°/s</strong> (environ 1 rotation toutes les 4 secondes)</li>
+                            <li>Le système calcule votre vitesse moyenne sur 10 mesures</li>
+                            <li>Maintenez la vitesse cible pour garder l'audio à 1.0x ✅</li>
+                            <li>Si vous tournez trop vite/lentement, l'audio s'ajuste automatiquement ⚡🐌</li>
+                            <li>Vous pouvez tourner dans les deux sens (→ ou ←)</li>
                         </ol>
                         <p style="margin-top: 1rem; color: #aaa; font-style: italic;">
-                            💡 Astuce : C'est un exercice d'endurance et de contrôle moteur - gardez le même tempo !
+                            💡 Astuce : Pensez à une platine vinyle - gardez une vitesse constante !
+                        </p>
+                        <p style="margin-top: 0.5rem; color: #f39c12; font-style: italic;">
+                            ⚙️ Technique : L'exercice utilise la VITESSE ABSOLUE (magnitude), pas les rotations complètes.
+                            Cela évite les problèmes de passage d'angles négatifs/positifs.
                         </p>
                     </section>
                 </div>

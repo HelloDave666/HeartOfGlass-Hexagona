@@ -42,26 +42,22 @@ class ExerciseController {
 
     // Configuration Heart Of Frost
     this.frostConfig = {
-      targetRotationTime: 3.0, // Temps cible pour une rotation complète (secondes)
-      rotationTimeWindow: 5, // Nombre de rotations pour calculer la moyenne
-      timeTolerance: 0.5, // Tolérance (±0.5s)
-      minSpeed: 0.1,
-      maxSpeed: 3.0,
-      smoothingFactor: 0.15 // Lissage très réactif
+      targetSpeed: 90, // Vitesse de rotation cible en MAGNITUDE (°/s) - sans direction
+      speedTolerance: 20, // Tolérance pour zone régulière (±20°/s)
+      sampleWindow: 10, // Nombre d'échantillons pour calculer la régularité
+      minPlaybackRate: 0.1,
+      maxPlaybackRate: 3.0,
+      smoothingFactor: 0.15, // Lissage réactif
+      accelerationFactor: 0.015 // Facteur pour mapper écart de vitesse → playback rate
     };
 
-    // État de la rotation - Détection de rotations complètes
+    // État de la rotation - Basé sur la VITESSE ABSOLUE
     this.rotationState = {
-      previousAngle: 0,
-      currentAngle: 0,
-      rotationCount: 0, // Nombre de rotations complètes
-      rotationStartTime: Date.now(),
-      rotationTimes: [], // Historique des temps de rotation (en secondes)
-      averageRotationTime: 0,
-      currentDirection: 1, // 1 = positif, -1 = négatif
-      previousDirection: 1,
+      speedSamples: [], // Historique des vitesses (magnitude)
+      averageSpeed: 0,
+      isRegular: false,
       playbackRate: 1.0,
-      accumulatedAngle: 0 // Angle cumulé pour détecter les 360°
+      direction: 1 // Direction actuelle (1 ou -1)
     };
 
     // Stockage des handlers pour cleanup
@@ -176,16 +172,11 @@ class ExerciseController {
 
     // Réinitialiser l'état de rotation
     this.rotationState = {
-      previousAngle: 0,
-      currentAngle: 0,
-      rotationCount: 0,
-      rotationStartTime: Date.now(),
-      rotationTimes: [],
-      averageRotationTime: 0,
-      currentDirection: 1,
-      previousDirection: 1,
+      speedSamples: [],
+      averageSpeed: 0,
+      isRegular: false,
       playbackRate: 1.0,
-      accumulatedAngle: 0
+      direction: 1
     };
 
     // Réinitialiser la vitesse audio à 1x
@@ -208,7 +199,7 @@ class ExerciseController {
 
   /**
    * Traite les données IMU pour l'exercice Heart Of Frost
-   * LOGIQUE : Détecte les rotations complètes et ajuste l'audio selon la régularité sur plusieurs tours
+   * SOLUTION 1+2 : Mode exclusif + Vitesse ABSOLUE (magnitude sans direction)
    * @param {string} position - "GAUCHE" ou "DROIT"
    * @param {Object} angles - Angles du capteur { x, y, z }
    * @param {number} angularVelocity - Vitesse angulaire (°/s)
@@ -225,87 +216,52 @@ class ExerciseController {
       return;
     }
 
-    // Récupérer l'angle Y actuel
-    const currentAngle = angles.y;
-    const previousAngle = this.rotationState.previousAngle;
+    // ✅ SOLUTION 2 : Utiliser la VITESSE ABSOLUE (magnitude)
+    const speedMagnitude = Math.abs(angularVelocity);
+    const direction = angularVelocity >= 0 ? 1 : -1;
 
-    // Calculer le changement d'angle depuis la dernière mesure
-    let deltaAngle = currentAngle - previousAngle;
+    // Stocker la direction actuelle
+    this.rotationState.direction = direction;
 
-    // Gérer le passage par 180° / -180° (wrap around)
-    if (deltaAngle > 180) {
-      deltaAngle -= 360;
-    } else if (deltaAngle < -180) {
-      deltaAngle += 360;
+    // Ajouter cet échantillon à l'historique
+    this.rotationState.speedSamples.push(speedMagnitude);
+
+    // Garder seulement les N derniers échantillons
+    if (this.rotationState.speedSamples.length > this.frostConfig.sampleWindow) {
+      this.rotationState.speedSamples.shift();
     }
 
-    // Accumuler l'angle parcouru
-    this.rotationState.accumulatedAngle += deltaAngle;
+    // Calculer la vitesse moyenne
+    const sum = this.rotationState.speedSamples.reduce((a, b) => a + b, 0);
+    this.rotationState.averageSpeed = sum / this.rotationState.speedSamples.length;
 
-    // Déterminer le sens de rotation
-    const currentDirection = angularVelocity >= 0 ? 1 : -1;
-    const hasDirectionChanged = (currentDirection !== this.rotationState.previousDirection);
+    // Déterminer si la vitesse est régulière
+    const targetSpeed = this.frostConfig.targetSpeed;
+    const tolerance = this.frostConfig.speedTolerance;
+    const avgSpeed = this.rotationState.averageSpeed;
 
-    // Si inversion de sens, réinitialiser l'accumulation
-    if (hasDirectionChanged) {
-      console.log('[HeartOfFrost] Inversion de sens détectée !');
-      this.rotationState.accumulatedAngle = 0;
-      this.rotationState.rotationStartTime = Date.now();
-      this.rotationState.previousDirection = currentDirection;
-    }
+    this.rotationState.isRegular =
+      avgSpeed >= (targetSpeed - tolerance) &&
+      avgSpeed <= (targetSpeed + tolerance);
 
-    // Détecter une rotation complète (360° parcourus)
-    const absAccumulatedAngle = Math.abs(this.rotationState.accumulatedAngle);
-    if (absAccumulatedAngle >= 360) {
-      // Rotation complète détectée !
-      const now = Date.now();
-      const rotationTime = (now - this.rotationState.rotationStartTime) / 1000; // en secondes
-
-      // Ajouter ce temps à l'historique
-      this.rotationState.rotationTimes.push(rotationTime);
-
-      // Garder seulement les N dernières rotations
-      if (this.rotationState.rotationTimes.length > this.frostConfig.rotationTimeWindow) {
-        this.rotationState.rotationTimes.shift();
-      }
-
-      // Calculer le temps moyen
-      const sum = this.rotationState.rotationTimes.reduce((a, b) => a + b, 0);
-      this.rotationState.averageRotationTime = sum / this.rotationState.rotationTimes.length;
-
-      // Incrémenter le compteur
-      this.rotationState.rotationCount++;
-
-      console.log(`[HeartOfFrost] Rotation ${this.rotationState.rotationCount} complétée en ${rotationTime.toFixed(2)}s | Moyenne: ${this.rotationState.averageRotationTime.toFixed(2)}s`);
-
-      // Réinitialiser pour la prochaine rotation
-      this.rotationState.accumulatedAngle = 0;
-      this.rotationState.rotationStartTime = now;
-    }
-
-    // Calculer le playback rate basé sur la moyenne des rotations
+    // Calculer le playback rate basé sur la vitesse moyenne
     let playbackRate = 1.0;
-    let playbackDirection = currentDirection;
 
-    if (this.rotationState.rotationTimes.length >= 2) {
-      // On a assez de données pour calculer
-      const avgTime = this.rotationState.averageRotationTime;
-      const targetTime = this.frostConfig.targetRotationTime;
-      const tolerance = this.frostConfig.timeTolerance;
-
-      if (avgTime < (targetTime - tolerance)) {
-        // TROP RAPIDE : Accélération
-        const timeDiff = targetTime - avgTime;
-        playbackRate = 1.0 + (timeDiff * 0.5); // Facteur d'accélération
-        playbackRate = Math.min(this.frostConfig.maxSpeed, playbackRate);
-      } else if (avgTime > (targetTime + tolerance)) {
-        // TROP LENT : Ralentissement
-        const timeDiff = avgTime - targetTime;
-        playbackRate = 1.0 - (timeDiff * 0.3); // Facteur de ralentissement
-        playbackRate = Math.max(this.frostConfig.minSpeed, playbackRate);
-      } else {
+    if (this.rotationState.speedSamples.length >= 3) {
+      // On a assez d'échantillons
+      if (this.rotationState.isRegular) {
         // RÉGULIER : Vitesse normale
         playbackRate = 1.0;
+      } else if (avgSpeed > (targetSpeed + tolerance)) {
+        // TROP RAPIDE : Accélération
+        const speedExcess = avgSpeed - targetSpeed;
+        playbackRate = 1.0 + (speedExcess * this.frostConfig.accelerationFactor);
+        playbackRate = Math.min(this.frostConfig.maxPlaybackRate, playbackRate);
+      } else if (avgSpeed < (targetSpeed - tolerance)) {
+        // TROP LENT : Ralentissement
+        const speedDeficit = targetSpeed - avgSpeed;
+        playbackRate = 1.0 - (speedDeficit * this.frostConfig.accelerationFactor * 0.8);
+        playbackRate = Math.max(this.frostConfig.minPlaybackRate, playbackRate);
       }
     }
 
@@ -314,18 +270,13 @@ class ExerciseController {
       this.rotationState.playbackRate * (1 - this.frostConfig.smoothingFactor) +
       playbackRate * this.frostConfig.smoothingFactor;
 
-    // Appliquer à l'audio
+    // ✅ SOLUTION 1 : L'exercice contrôle DIRECTEMENT l'audio (mode exclusif)
     if (this.audioOrchestrator) {
       this.audioOrchestrator.setPlaybackRate(
         this.rotationState.playbackRate,
-        playbackDirection
+        direction
       );
     }
-
-    // Mettre à jour les variables pour la prochaine itération
-    this.rotationState.previousAngle = currentAngle;
-    this.rotationState.currentAngle = currentAngle;
-    this.rotationState.currentDirection = currentDirection;
 
     // Mettre à jour le feedback
     if (!this.lastFeedbackUpdate || Date.now() - this.lastFeedbackUpdate > 100) {
@@ -339,29 +290,30 @@ class ExerciseController {
    * @private
    */
   updateExerciseFeedback() {
-    const rotationCount = this.rotationState.rotationCount;
-    const avgTime = this.rotationState.averageRotationTime;
+    const avgSpeed = this.rotationState.averageSpeed;
     const rate = this.rotationState.playbackRate;
-    const targetTime = this.frostConfig.targetRotationTime;
-    const tolerance = this.frostConfig.timeTolerance;
+    const isRegular = this.rotationState.isRegular;
+    const targetSpeed = this.frostConfig.targetSpeed;
+    const direction = this.rotationState.direction;
+    const directionArrow = direction > 0 ? '→' : '←';
 
     let feedback = '';
     let emoji = '';
     let status = '';
 
     // Déterminer le statut
-    if (this.rotationState.rotationTimes.length < 2) {
+    if (this.rotationState.speedSamples.length < 3) {
       // Pas assez de données
       emoji = '🔄';
-      status = 'En cours de calibration...';
-      feedback = `${emoji} ${status} | Rotations: ${rotationCount} | En rotation...`;
+      status = 'Calibration en cours...';
+      feedback = `${emoji} ${status}`;
     } else {
       // Assez de données pour évaluer
-      if (avgTime >= (targetTime - tolerance) && avgTime <= (targetTime + tolerance)) {
+      if (isRegular) {
         // RÉGULIER !
         emoji = '✅';
-        status = 'PARFAIT ! Rythme régulier';
-      } else if (avgTime < (targetTime - tolerance)) {
+        status = 'PARFAIT ! Vitesse régulière';
+      } else if (avgSpeed > (targetSpeed + this.frostConfig.speedTolerance)) {
         // TROP RAPIDE
         if (rate >= 2.5) {
           emoji = '⚡⚡⚡';
@@ -384,7 +336,7 @@ class ExerciseController {
         }
       }
 
-      feedback = `${emoji} ${status} | Rotations: ${rotationCount} | Temps moyen: ${avgTime.toFixed(2)}s (cible: ${targetTime}s) | Audio: ${rate.toFixed(2)}x`;
+      feedback = `${emoji} ${status} | Vitesse: ${avgSpeed.toFixed(1)}°/s (cible: ${targetSpeed}°/s) ${directionArrow} | Audio: ${rate.toFixed(2)}x`;
     }
 
     this.updateFeedback(feedback);
