@@ -1,9 +1,8 @@
 ﻿// src/adapters/primary/ui/app.js
-// INTÉGRATION : NobleBluetoothAdapter + Système Audio Granulaire + Enregistrement MP3 + ExerciseController
+// INTÉGRATION : NobleBluetoothAdapter + Système Audio Granulaire + Enregistrement MP3
 // Phase 7 - Step 11 : AppBootstrap - app.js simplifié à ~180 lignes
-// AJOUT : ExerciseController pour gérer les exercices (RotationContinue, etc.)
 
-console.log('Heart of Glass - Version avec Architecture Hexagonale Complète + Exercices');
+console.log('Heart of Glass - Version avec Architecture Hexagonale Complète');
 
 // ========================================
 // MODE HYBRIDE : Basculement IPC / Direct
@@ -69,45 +68,11 @@ state.setAudioParameters(new AudioParameters(
 let controllers = {};
 let orchestrators = {};
 
-// ╔═══════════════════════════════════════════════════════════════╗
-// ║ AJOUT 1/4 : Variable pour le contrôleur d'exercices          ║
-// ╚═══════════════════════════════════════════════════════════════╝
-let exerciseController = null;
-
-// Stocker les derniers angles de chaque capteur pour l'exercice
-let lastSensorAngles = {
-  left: { x: 0, y: 0, z: 0 },
-  right: { x: 0, y: 0, z: 0 }
-};
-
 // ========================================
 // CALLBACKS
 // ========================================
 
 function updateAngles(position, angles) {
-  // ╔═══════════════════════════════════════════════════════════════╗
-  // ║ AJOUT 2/4 : Router vers exercice si actif                    ║
-  // ╚═══════════════════════════════════════════════════════════════╝
-  
-  // Mettre à jour les angles stockés
-  const side = position === 'GAUCHE' ? 'left' : 'right';
-  lastSensorAngles[side] = { ...angles };
-  
-  // Si un exercice est actif, router les données vers lui SEULEMENT
-  if (exerciseController && exerciseController.currentExercise) {
-    // Passer les angles des deux capteurs à l'exercice
-    exerciseController.updateAngles(lastSensorAngles);
-    
-    // Mettre à jour l'UI des capteurs quand même (pour voir les angles)
-    controllers.sensorUIController.updateAngles(position, angles);
-    
-    // Ne pas appliquer l'audio standard (l'exercice s'en occupe)
-    return;
-  }
-  
-  // ╔═══════════════════════════════════════════════════════════════╗
-  // ║ COMPORTEMENT NORMAL (si aucun exercice actif)                ║
-  // ╚═══════════════════════════════════════════════════════════════╝
   controllers.sensorUIController.updateAngles(position, angles);
   
   if (position === 'DROIT') {
@@ -313,49 +278,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('[Audio] Audio échoué');
   }
   
-  // ╔═══════════════════════════════════════════════════════════════╗
-  // ║ AJOUT 3/4 : Initialisation ExerciseController                ║
-  // ╚═══════════════════════════════════════════════════════════════╝
-  try {
-    const ExerciseController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'ExerciseController.js'));
-    
-    exerciseController = new ExerciseController({
-      audioOrchestrator: orchestrators.audio,
-      state
-    });
-    
-    exerciseController.initialize();
-    
-    // Exposer les commandes globalement (pour console)
-    if (window) {
-      // @ts-ignore
-      window.startRotationExercise = () => {
-        console.log('[App] Démarrage exercice RotationContinue...');
-        exerciseController.startExercise('rotationContinue');
-      };
-      
-      // @ts-ignore
-      window.stopRotationExercise = () => {
-        console.log('[App] Arrêt exercice actif...');
-        exerciseController.stopCurrentExercise();
-      };
-      
-      // @ts-ignore
-      window.getExerciseStatus = () => {
-        return exerciseController.getStatus();
-      };
-      
-      console.log('[App] ✓ ExerciseController prêt');
-      console.log('[App] 💡 Commandes exercices:');
-      console.log('   - window.startRotationExercise()');
-      console.log('   - window.stopRotationExercise()');
-      console.log('   - window.getExerciseStatus()');
-    }
-  } catch (error) {
-    console.warn('[App] ExerciseController non disponible:', error.message);
-    console.warn('[App] L\'application fonctionnera sans les exercices');
-  }
-  
   console.log('[App] ✓ Application prête');
 });
 
@@ -368,13 +290,6 @@ if (window.require) {
   
   ipcRenderer.on('app-closing', async () => {
     console.log('[App] Fermeture - Nettoyage...');
-    
-    // ╔═══════════════════════════════════════════════════════════════╗
-    // ║ AJOUT 4/4 : Cleanup ExerciseController                       ║
-    // ╚═══════════════════════════════════════════════════════════════╝
-    if (exerciseController) {
-      exerciseController.dispose();
-    }
     
     // Cleanup orchestrateurs
     if (orchestrators.bluetooth) {
