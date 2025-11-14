@@ -135,8 +135,8 @@ class ExerciseController {
    * @param {Object} angles - {x, y, z}
    */
   updateAngles(angles) {
-    if (this.currentExercise && this.currentExercise.updateAngles) {
-      this.currentExercise.updateAngles(angles);
+    if (this.currentExercise && this.currentExercise.update) {
+      this.currentExercise.update(angles);
     }
   }
   

@@ -14,10 +14,18 @@ class RotationContinueExercise {
     
     // Configuration de l'exercice
     this.config = {
-      targetSpeed: 50,        // Vitesse cible (degrés/s)
-      tolerance: 20,          // Tolérance (degrés/s)
-      duration: 30000,        // Durée (ms)
-      checkInterval: 100      // Intervalle de vérification (ms)
+      targetSpeed: 180,         // Vitesse cible (degrés/s) - 1 rotation en 2 secondes
+      comfortZone: 80,          // Zone de confort totale ±80°/s → 100-260°/s = vitesse 1x
+      transitionZone: 60,       // Zone de transition progressive ±60°/s supplémentaires
+      duration: 300000,         // Durée (ms) - 5 minutes
+      checkInterval: 100,       // Intervalle de vérification (ms)
+      smoothingFactor: 0.4      // Lissage transitions (0 = aucun, 1 = lent)
+    };
+    
+    // Paramètres audio optimisés pour l'exercice
+    this.audioSettings = {
+      grainSize: 160,         // 160ms - optimal pour flux continu
+      overlap: 77             // 77% - transitions douces
     };
     
     // État de l'exercice
@@ -29,6 +37,11 @@ class RotationContinueExercise {
     this.rotationHistory = [];
     this.lastAngularVelocity = 0;
     this.lastPlaybackRate = 1.0;
+    this.smoothedPlaybackRate = 1.0; // Vitesse lissée
+    this.imuWasEnabled = false; // Pour restaurer l'état IMU après l'exercice
+    
+    // Sauvegarder les paramètres audio originaux
+    this.originalAudioParams = null;
     
     console.log('[RotationContinueExercise] Exercice créé');
   }
@@ -44,16 +57,40 @@ class RotationContinueExercise {
     
     console.log('[RotationContinueExercise] Démarrage...');
     
+    // Sauvegarder et désactiver l'IMU standard
+    this.imuWasEnabled = this.state.isIMUToAudioEnabled();
+    if (this.imuWasEnabled) {
+      console.log('[RotationContinueExercise] 🔇 Désactivation IMU standard pendant l\'exercice');
+      this.state.setIMUToAudioEnabled(false);
+    }
+    
+    // Sauvegarder et appliquer les paramètres audio optimisés
+    const currentParams = this.state.getAudioParameters();
+    this.originalAudioParams = {
+      grainSize: currentParams.grainSize,
+      overlap: currentParams.overlap
+    };
+    
+    console.log('[RotationContinueExercise] 🎵 Configuration audio optimisée:', this.audioSettings);
+    this.audioOrchestrator.setGrainSize(this.audioSettings.grainSize);
+    this.audioOrchestrator.setOverlap(this.audioSettings.overlap);
+    
     this.isActive = true;
     this.startTime = Date.now();
-    this.lastTimestamp = Date.now();
+    this.lastTimestamp = null;
     this.rotationHistory = [];
     this.lastAngles = { x: 0, y: 0, z: 0 };
+    this.smoothedPlaybackRate = 1.0; // Réinitialiser le lissage
     
-    // Démarrer la lecture audio
-    if (this.audioOrchestrator && this.audioOrchestrator.play) {
-      this.audioOrchestrator.play();
-      console.log('[RotationContinueExercise] Audio démarré');
+    // Démarrer la lecture audio via AudioOrchestrator
+    if (this.audioOrchestrator) {
+      const audioState = this.state.getAudioState();
+      if (!audioState.isPlaying) {
+        this.audioOrchestrator.togglePlayPause();
+        console.log('[RotationContinueExercise] Audio démarré');
+      } else {
+        console.log('[RotationContinueExercise] Audio déjà en lecture');
+      }
     }
     
     // Démarrer la surveillance
@@ -89,9 +126,23 @@ class RotationContinueExercise {
       this.checkIntervalId = null;
     }
     
-    // Arrêter l'audio
-    if (this.audioOrchestrator && this.audioOrchestrator.pause) {
-      this.audioOrchestrator.pause();
+    // Remettre la vitesse normale
+    if (this.audioOrchestrator) {
+      this.audioOrchestrator.setPlaybackRate(1.0, 1);
+      console.log('[RotationContinueExercise] Vitesse audio remise à normale');
+    }
+    
+    // Restaurer les paramètres audio originaux
+    if (this.originalAudioParams && this.audioOrchestrator) {
+      console.log('[RotationContinueExercise] 🎵 Restauration paramètres audio:', this.originalAudioParams);
+      this.audioOrchestrator.setGrainSize(this.originalAudioParams.grainSize);
+      this.audioOrchestrator.setOverlap(this.originalAudioParams.overlap);
+    }
+    
+    // Restaurer l'état IMU standard
+    if (this.imuWasEnabled) {
+      console.log('[RotationContinueExercise] 🔊 Réactivation IMU standard');
+      this.state.setIMUToAudioEnabled(true);
     }
     
     // Calculer les statistiques
@@ -116,9 +167,18 @@ class RotationContinueExercise {
     }
     
     const now = Date.now();
+    
+    // Initialisation au premier appel
+    if (this.lastTimestamp === null) {
+      this.lastTimestamp = now;
+      this.lastAngles = { ...angles };
+      console.log('[RotationContinueExercise] Premier angle enregistré');
+      return;
+    }
+    
     const dt = (now - this.lastTimestamp) / 1000; // Convertir en secondes
     
-    if (dt > 0 && this.lastTimestamp) {
+    if (dt > 0 && dt < 1.0) { // Ignorer les deltas > 1 seconde (aberrants)
       // Calculer la vélocité angulaire sur l'axe Y (rotation principale)
       const deltaY = angles.y - this.lastAngles.y;
       
@@ -148,8 +208,10 @@ class RotationContinueExercise {
         velocity: Math.round(angularVelocity),
         targetSpeed: this.config.targetSpeed,
         isInRange: this._isInTargetRange(angularVelocity),
-        playbackRate: this.lastPlaybackRate
+        playbackRate: this.smoothedPlaybackRate
       });
+    } else if (dt >= 1.0) {
+      console.warn(`[RotationContinue] Delta temps aberrant: ${dt.toFixed(3)}s - ignoré`);
     }
     
     this.lastAngles = { ...angles };
@@ -161,13 +223,14 @@ class RotationContinueExercise {
    * @private
    */
   _isInTargetRange(velocity) {
-    const min = this.config.targetSpeed - this.config.tolerance;
-    const max = this.config.targetSpeed + this.config.tolerance;
+    const min = this.config.targetSpeed - this.config.comfortZone;
+    const max = this.config.targetSpeed + this.config.comfortZone;
     return velocity >= min && velocity <= max;
   }
   
   /**
    * Contrôle la lecture audio en fonction de la vitesse de rotation
+   * Système à 3 zones pour transitions progressives
    * @private
    */
   _controlAudio(angularVelocity) {
@@ -175,29 +238,87 @@ class RotationContinueExercise {
       return;
     }
     
-    // Calculer le ratio de vitesse (entre 0 et 2)
-    // 0 = arrêt, 1 = vitesse normale, 2 = double vitesse
-    const ratio = angularVelocity / this.config.targetSpeed;
+    // Définition des 3 zones
+    const comfortMin = this.config.targetSpeed - this.config.comfortZone;
+    const comfortMax = this.config.targetSpeed + this.config.comfortZone;
+    const transitionMin = comfortMin - this.config.transitionZone;
+    const transitionMax = comfortMax + this.config.transitionZone;
     
-    // Limiter entre 0.25 et 2.0 pour éviter les distorsions extrêmes
-    const playbackRate = Math.max(0.25, Math.min(2.0, ratio));
+    let targetPlaybackRate;
     
-    this.lastPlaybackRate = playbackRate;
-    
-    // Appliquer le taux de lecture
-    if (this.audioOrchestrator.setPlaybackRate) {
-      this.audioOrchestrator.setPlaybackRate(playbackRate);
+    if (angularVelocity >= comfortMin && angularVelocity <= comfortMax) {
+      // ═══════════════════════════════════════════════════════════
+      // ZONE 1 (CENTRALE) : ZONE DE CONFORT
+      // 100-260°/s → vitesse 1.0x
+      // ═══════════════════════════════════════════════════════════
+      targetPlaybackRate = 1.0;
+      
+    } else if (angularVelocity >= transitionMin && angularVelocity < comfortMin) {
+      // ═══════════════════════════════════════════════════════════
+      // ZONE 2A (TRANSITION BAS) : PROGRESSION DOUCE
+      // 40-100°/s → progression linéaire de 0.4x à 1.0x
+      // ═══════════════════════════════════════════════════════════
+      const progress = (angularVelocity - transitionMin) / this.config.transitionZone;
+      const minRate = transitionMin / this.config.targetSpeed; // ~0.22x à 40°/s
+      targetPlaybackRate = minRate + (1.0 - minRate) * progress;
+      targetPlaybackRate = Math.max(0.25, targetPlaybackRate); // Limiter à 0.25x minimum
+      
+    } else if (angularVelocity > comfortMax && angularVelocity <= transitionMax) {
+      // ═══════════════════════════════════════════════════════════
+      // ZONE 2B (TRANSITION HAUT) : PROGRESSION DOUCE
+      // 260-320°/s → progression linéaire de 1.0x à 1.8x
+      // ═══════════════════════════════════════════════════════════
+      const progress = (angularVelocity - comfortMax) / this.config.transitionZone;
+      const maxRate = transitionMax / this.config.targetSpeed; // ~1.78x à 320°/s
+      targetPlaybackRate = 1.0 + (maxRate - 1.0) * progress;
+      targetPlaybackRate = Math.min(2.0, targetPlaybackRate); // Limiter à 2.0x maximum
+      
+    } else {
+      // ═══════════════════════════════════════════════════════════
+      // ZONE 3 (EXTÉRIEURE) : RATIO NORMAL
+      // < 40°/s ou > 320°/s → ratio calculé normalement
+      // ═══════════════════════════════════════════════════════════
+      const ratio = angularVelocity / this.config.targetSpeed;
+      targetPlaybackRate = Math.max(0.25, Math.min(2.0, ratio));
     }
     
-    // Si la vitesse est trop basse, mettre en pause
-    if (angularVelocity < 5) {
-      if (this.audioOrchestrator.pause) {
-        this.audioOrchestrator.pause();
-      }
+    // ✨ LISSAGE : moyenne pondérée entre l'ancienne et la nouvelle valeur
+    this.smoothedPlaybackRate = 
+      this.smoothedPlaybackRate * (1 - this.config.smoothingFactor) + 
+      targetPlaybackRate * this.config.smoothingFactor;
+    
+    // Arrondir légèrement pour éviter les micro-variations
+    this.smoothedPlaybackRate = Math.round(this.smoothedPlaybackRate * 100) / 100;
+    
+    // Log uniquement si changement significatif
+    if (Math.abs(this.lastPlaybackRate - this.smoothedPlaybackRate) > 0.02) {
+      const zone = this._getZoneName(angularVelocity, comfortMin, comfortMax, transitionMin, transitionMax);
+      console.log(`[RotationContinue] ${zone} (${angularVelocity.toFixed(1)}°/s) → Vitesse: ${this.smoothedPlaybackRate.toFixed(2)}x`);
+      this.lastPlaybackRate = this.smoothedPlaybackRate;
+    }
+    
+    // Appliquer le taux de lecture lissé via AudioOrchestrator
+    this.audioOrchestrator.setPlaybackRate(this.smoothedPlaybackRate, 1);
+    
+    // ⚠️ PAS DE PAUSE AUTOMATIQUE - L'audio continue toujours
+    // (supprimé le système de pause qui causait les arrêts)
+  }
+  
+  /**
+   * Obtient le nom de la zone pour le log
+   * @private
+   */
+  _getZoneName(velocity, comfortMin, comfortMax, transitionMin, transitionMax) {
+    if (velocity >= comfortMin && velocity <= comfortMax) {
+      return '✓ Zone confort';
+    } else if (velocity >= transitionMin && velocity < comfortMin) {
+      return '↗ Transition basse';
+    } else if (velocity > comfortMax && velocity <= transitionMax) {
+      return '↗ Transition haute';
+    } else if (velocity < transitionMin) {
+      return '⬇ Zone lente';
     } else {
-      if (this.audioOrchestrator.play) {
-        this.audioOrchestrator.play();
-      }
+      return '⬆ Zone rapide';
     }
   }
   
@@ -301,7 +422,7 @@ class RotationContinueExercise {
       config: { ...this.config },
       historyLength: this.rotationHistory.length,
       lastVelocity: this.lastAngularVelocity,
-      lastPlaybackRate: this.lastPlaybackRate
+      lastPlaybackRate: this.smoothedPlaybackRate
     };
   }
   

@@ -305,6 +305,22 @@ class AudioOrchestrator {
   }
 
   /**
+   * Modifie la vitesse de lecture
+   * @param {number} rate - Vitesse de lecture (0.25 à 2.0)
+   * @param {number} direction - Direction (1 = avant, -1 = arrière)
+   */
+  setPlaybackRate(rate, direction = 1) {
+    if (!this.state.getAudioSystem()) return;
+    
+    try {
+      this.state.getAudioSystem().setPlaybackRate(rate, direction);
+      console.log(`[AudioOrchestrator] Playback rate: ${rate.toFixed(2)}x | Direction: ${direction === 1 ? 'AVANT' : 'ARRIÈRE'}`);
+    } catch (error) {
+      console.error('[AudioOrchestrator] Erreur setPlaybackRate:', error);
+    }
+  }
+
+  /**
    * Nettoyage avant fermeture
    */
   async cleanup() {

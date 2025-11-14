@@ -95,8 +95,10 @@ function updateAngles(position, angles) {
   
   // Si un exercice est actif, router les données vers lui SEULEMENT
   if (exerciseController && exerciseController.currentExercise) {
-    // Passer les angles des deux capteurs à l'exercice
-    exerciseController.updateAngles(lastSensorAngles);
+    // Passer seulement les angles de la main DROITE à l'exercice
+    if (position === 'DROIT') {
+      exerciseController.updateAngles(lastSensorAngles.right);
+    }
     
     // Mettre à jour l'UI des capteurs quand même (pour voir les angles)
     controllers.sensorUIController.updateAngles(position, angles);
