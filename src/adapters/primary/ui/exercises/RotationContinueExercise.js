@@ -22,18 +22,21 @@ class RotationContinueExercise {
       smoothingFactor: 0.7,
       
       // Paramètres fenêtre glissante
-      samplingWindow: 4000,
+      samplingWindow: 2000,
       hysteresisMargin: 40,
-      minSamplesForDecision: 8,
+      minSamplesForDecision: 5,
       
-      // NOUVEAU : Paramètres direction robuste
-      directionChangeThreshold: 0.70,  // 70% d'échantillons dans nouveau sens pour changer
-      minSamplesForDirectionChange: 10, // Minimum d'échantillons avant changement direction
+      // Paramètres direction robuste
+      directionChangeThreshold: 0.70,   // ✅ Remonté à 70% pour plus de stabilité
+      minSamplesForDirectionChange: 8,  // ✅ Plus d'échantillons requis
       
-      // Paramètres repositionnement main
-      repositionThreshold: 15,          // ABAISSÉ de 20 à 15°/s (plus sensible)
-      repositionMaxDuration: 2000,      // AUGMENTÉ de 1500 à 2000ms
-      freezePlaybackDuringReposition: true
+      // Paramètres repositionnement
+      repositionThreshold: 15,
+      repositionMaxDuration: 2000,
+      freezePlaybackDuringReposition: true,
+      
+      // Mode debug
+      debugMode: false  // ✅ Désactivé par défaut
     };
     
     // Paramètres audio optimisés
@@ -54,14 +57,18 @@ class RotationContinueExercise {
     this.smoothedPlaybackRate = 1.0;
     this.imuWasEnabled = false;
     
+    // ✅ NOUVEAU : Angle cumulatif pour détecter le vrai sens de rotation
+    this.cumulativeAngle = 0;
+    this.lastRawAngleY = 0;
+    
     // État fenêtre glissante
     this.velocityBuffer = [];
     this.averageVelocity = 0;
     this.isLockedInComfort = false;
     
-    // NOUVEAU : Direction lissée
-    this.stableDirection = 1;          // Direction stable courante (1 ou -1)
-    this.instantDirection = 1;         // Direction instantanée brute
+    // Direction lissée
+    this.stableDirection = 1;
+    this.instantDirection = 1;
     
     // État repositionnement
     this.isRepositioning = false;
@@ -111,6 +118,10 @@ class RotationContinueExercise {
     this.lastAngles = { x: 0, y: 0, z: 0 };
     this.smoothedPlaybackRate = 1.0;
     
+    // ✅ Réinitialiser angle cumulatif
+    this.cumulativeAngle = 0;
+    this.lastRawAngleY = 0;
+    
     // Réinitialiser fenêtre glissante
     this.velocityBuffer = [];
     this.averageVelocity = 0;
@@ -146,6 +157,9 @@ class RotationContinueExercise {
       duration: this.config.duration,
       targetSpeed: this.config.targetSpeed
     });
+    
+    console.log('[RotationContinueExercise] 💡 IMPORTANT: Tournez CONTINUELLEMENT dans un sens pour rester en zone confort');
+    console.log('[RotationContinueExercise] 💡 Pour inverser la lecture, tournez CONTINUELLEMENT dans l\'autre sens');
     
     return true;
   }
@@ -214,17 +228,23 @@ class RotationContinueExercise {
     if (this.lastTimestamp === null) {
       this.lastTimestamp = now;
       this.lastAngles = { ...angles };
-      console.log('[RotationContinueExercise] Premier angle enregistré');
+      this.lastRawAngleY = angles.y;
+      this.cumulativeAngle = 0;
+      
+      console.log('[RotationContinueExercise] Initialisation - Angle Y:', angles.y.toFixed(1) + '°');
       return;
     }
     
     const dt = (now - this.lastTimestamp) / 1000;
     
     if (dt > 0 && dt < 1.0) {
-      // Calculer la vélocité angulaire sur l'axe Y
-      const deltaY = angles.y - this.lastAngles.y;
+      // ═══════════════════════════════════════════════════════════
+      // ✅ CALCUL ANGLE CUMULATIF (débordant, peut dépasser 360°)
+      // ═══════════════════════════════════════════════════════════
       
-      // Gérer le passage de 360° à 0°
+      const deltaY = angles.y - this.lastRawAngleY;
+      
+      // Gérer le wraparound 360° → 0° ou 0° → 360°
       let normalizedDelta = deltaY;
       if (Math.abs(deltaY) > 180) {
         normalizedDelta = deltaY > 0 
@@ -232,11 +252,23 @@ class RotationContinueExercise {
           : deltaY + 360;
       }
       
-      // ✅ Direction INSTANTANÉE (brute, non filtrée)
-      this.instantDirection = normalizedDelta >= 0 ? 1 : -1;
+      // ✅ ACCUMULER le delta dans l'angle cumulatif
+      // Cet angle peut devenir négatif ou > 360°, c'est VOULU
+      this.cumulativeAngle += normalizedDelta;
       
-      const angularVelocity = Math.abs(normalizedDelta / dt);
+      // ✅ Détecter le sens de rotation sur une FENÊTRE COURTE
+      // On regarde la tendance des derniers deltas, pas juste le delta actuel
+      const angularVelocitySigned = normalizedDelta / dt; // AVEC LE SIGNE
+      const angularVelocity = Math.abs(angularVelocitySigned);
       this.lastAngularVelocity = angularVelocity;
+      
+      // ✅ Direction instantanée basée sur la vélocité SIGNÉE
+      this.instantDirection = angularVelocitySigned >= 0 ? 1 : -1;
+      
+      if (this.config.debugMode && angularVelocity > 10) {
+        const dirText = this.instantDirection === 1 ? 'HORAIRE ↻' : 'ANTI-HORAIRE ↺';
+        console.log(`[DEBUG] Y: ${angles.y.toFixed(1)}° | Delta: ${normalizedDelta.toFixed(1)}° | Cumulatif: ${this.cumulativeAngle.toFixed(1)}° | ${dirText}`);
+      }
       
       // Détection repositionnement main
       this._detectRepositioning(angularVelocity, now);
@@ -245,18 +277,19 @@ class RotationContinueExercise {
       this._addToVelocityBuffer({
         timestamp: now,
         velocity: angularVelocity,
-        direction: this.instantDirection, // Direction brute
-        angles: { ...angles }
+        direction: this.instantDirection,
+        angles: { ...angles },
+        cumulativeAngle: this.cumulativeAngle
       });
       
-      // ✅ CALCUL DIRECTION STABLE (lissée sur fenêtre)
+      // CALCUL DIRECTION STABLE (lissée sur fenêtre)
       this._updateStableDirection();
       
       // Enregistrer dans l'historique complet
       this.rotationHistory.push({
         timestamp: now,
         velocity: angularVelocity,
-        direction: this.stableDirection, // Direction stable
+        direction: this.stableDirection,
         angles: { ...angles },
         isRepositioning: this.isRepositioning
       });
@@ -273,8 +306,12 @@ class RotationContinueExercise {
         isLockedInComfort: this.isLockedInComfort,
         isRepositioning: this.isRepositioning,
         playbackRate: this.smoothedPlaybackRate,
-        direction: this.stableDirection
+        direction: this.stableDirection,
+        cumulativeAngle: this.cumulativeAngle
       });
+      
+      this.lastRawAngleY = angles.y;
+      
     } else if (dt >= 1.0) {
       console.warn(`[RotationContinue] Delta temps aberrant: ${dt.toFixed(3)}s - ignoré`);
     }
@@ -295,7 +332,7 @@ class RotationContinueExercise {
       
       // Sauvegarder la vitesse ET la direction actuelles
       this.frozenPlaybackRate = this.smoothedPlaybackRate;
-      this.frozenDirection = this.stableDirection; // ✅ Direction stable
+      this.frozenDirection = this.stableDirection;
       
       console.log('[RotationContinue] 🤚 Repositionnement - Gel: ' + this.frozenPlaybackRate.toFixed(2) + 'x dir:' + this.frozenDirection);
     }
@@ -341,43 +378,61 @@ class RotationContinueExercise {
   }
   
   /**
-   * ✅ NOUVEAU : Met à jour la direction stable basée sur la majorité dans la fenêtre
+   * ✅ Met à jour la direction stable basée sur la TENDANCE de l'angle cumulatif
    * @private
    */
   _updateStableDirection() {
     // Attendre d'avoir assez d'échantillons
     if (this.velocityBuffer.length < this.config.minSamplesForDirectionChange) {
-      return; // Garder la direction actuelle
+      return;
     }
     
-    // Compter les échantillons AVANT (direction = 1) et ARRIÈRE (direction = -1)
+    // ✅ NOUVELLE MÉTHODE : Analyser la TENDANCE de l'angle cumulatif
+    // Si l'angle cumulatif augmente globalement → rotation horaire
+    // Si l'angle cumulatif diminue globalement → rotation anti-horaire
+    
+    const oldestSample = this.velocityBuffer[0];
+    const newestSample = this.velocityBuffer[this.velocityBuffer.length - 1];
+    
+    const angleDrift = newestSample.cumulativeAngle - oldestSample.cumulativeAngle;
+    const timeDrift = (newestSample.timestamp - oldestSample.timestamp) / 1000;
+    
+    const averageTrend = angleDrift / timeDrift; // Tendance moyenne en °/s
+    
+    // Compter aussi les échantillons avec leur direction instantanée (backup)
     const forwardCount = this.velocityBuffer.filter(s => s.direction === 1).length;
     const backwardCount = this.velocityBuffer.filter(s => s.direction === -1).length;
     const totalCount = this.velocityBuffer.length;
     
-    // Calculer les pourcentages
     const forwardRatio = forwardCount / totalCount;
     const backwardRatio = backwardCount / totalCount;
     
-    // ═══════════════════════════════════════════════════════════
-    // CHANGEMENT DE DIRECTION avec HYSTÉRÉSIS
-    // On ne change QUE si on a une majorité claire (>70%)
-    // ═══════════════════════════════════════════════════════════
+    // ✅ DÉCISION BASÉE SUR LA TENDANCE (priorité) + ratio (backup)
+    const previousDirection = this.stableDirection;
+    
+    // Seuil pour changer : tendance claire ET ratio majoritaire
+    const trendThreshold = 30; // °/s sur la fenêtre
     
     if (this.stableDirection === 1) {
-      // Direction actuelle: AVANT
-      // On passe en ARRIÈRE seulement si >70% d'échantillons arrière
-      if (backwardRatio > this.config.directionChangeThreshold) {
+      // Direction actuelle: HORAIRE
+      // On passe en ANTI-HORAIRE si tendance négative ET >70% échantillons arrière
+      if (averageTrend < -trendThreshold && backwardRatio > this.config.directionChangeThreshold) {
         this.stableDirection = -1;
-        console.log(`[RotationContinue] 🔄 Changement direction: AVANT → ARRIÈRE (${(backwardRatio*100).toFixed(0)}% arrière)`);
+        console.log(`[RotationContinue] 🔄 Changement: HORAIRE ↻ → ANTI-HORAIRE ↺ (tendance: ${averageTrend.toFixed(1)}°/s, ${(backwardRatio*100).toFixed(0)}% arrière)`);
       }
     } else if (this.stableDirection === -1) {
-      // Direction actuelle: ARRIÈRE
-      // On passe en AVANT seulement si >70% d'échantillons avant
-      if (forwardRatio > this.config.directionChangeThreshold) {
+      // Direction actuelle: ANTI-HORAIRE
+      // On passe en HORAIRE si tendance positive ET >70% échantillons avant
+      if (averageTrend > trendThreshold && forwardRatio > this.config.directionChangeThreshold) {
         this.stableDirection = 1;
-        console.log(`[RotationContinue] 🔄 Changement direction: ARRIÈRE → AVANT (${(forwardRatio*100).toFixed(0)}% avant)`);
+        console.log(`[RotationContinue] 🔄 Changement: ANTI-HORAIRE ↺ → HORAIRE ↻ (tendance: ${averageTrend.toFixed(1)}°/s, ${(forwardRatio*100).toFixed(0)}% avant)`);
       }
+    }
+    
+    // Debug
+    if (this.config.debugMode && totalCount % 10 === 0) {
+      const dirText = this.stableDirection === 1 ? 'HORAIRE ↻' : 'ANTI-HORAIRE ↺';
+      console.log(`[DEBUG] Tendance: ${averageTrend.toFixed(1)}°/s | Ratio: ${forwardRatio.toFixed(2)}↻ / ${backwardRatio.toFixed(2)}↺ | Direction: ${dirText}`);
     }
   }
   
@@ -400,9 +455,7 @@ class RotationContinueExercise {
       return;
     }
     
-    // ═══════════════════════════════════════════════════════════
     // MODE REPOSITIONNEMENT : GELER vitesse ET direction
-    // ═══════════════════════════════════════════════════════════
     if (this.isRepositioning && this.config.freezePlaybackDuringReposition) {
       this.audioOrchestrator.setPlaybackRate(this.frozenPlaybackRate, this.frozenDirection);
       return;
@@ -419,10 +472,7 @@ class RotationContinueExercise {
     const hysteresisMin = comfortMin - this.config.hysteresisMargin;
     const hysteresisMax = comfortMax + this.config.hysteresisMargin;
     
-    // ═══════════════════════════════════════════════════════════
     // VERROUILLAGE ZONE CONFORT (direction TOUJOURS mise à jour)
-    // ═══════════════════════════════════════════════════════════
-    
     if (this.isLockedInComfort) {
       // Vérifier si on doit sortir
       if (this.averageVelocity < hysteresisMin || this.averageVelocity > hysteresisMax) {
@@ -431,7 +481,7 @@ class RotationContinueExercise {
       } else {
         // Rester verrouillé à 1.0x MAIS mettre à jour la direction STABLE
         this.smoothedPlaybackRate = 1.0;
-        this.audioOrchestrator.setPlaybackRate(1.0, this.stableDirection); // ✅ Direction stable
+        this.audioOrchestrator.setPlaybackRate(1.0, this.stableDirection);
         return;
       }
     }
@@ -440,17 +490,15 @@ class RotationContinueExercise {
     if (!this.isLockedInComfort) {
       if (this.averageVelocity >= comfortMin && this.averageVelocity <= comfortMax) {
         this.isLockedInComfort = true;
-        console.log('[RotationContinue] 🔒 Entrée zone confort (avg: ' + this.averageVelocity.toFixed(1) + '°/s, dir:' + this.stableDirection + ')');
+        const dirText = this.stableDirection === 1 ? 'HORAIRE ↻' : 'ANTI-HORAIRE ↺';
+        console.log(`[RotationContinue] 🔒 Entrée zone confort (avg: ${this.averageVelocity.toFixed(1)}°/s, ${dirText})`);
         this.smoothedPlaybackRate = 1.0;
         this.audioOrchestrator.setPlaybackRate(1.0, this.stableDirection);
         return;
       }
     }
     
-    // ═══════════════════════════════════════════════════════════
     // HORS ZONE CONFORT : TRANSITIONS PROGRESSIVES
-    // ═══════════════════════════════════════════════════════════
-    
     const transitionMinStart = comfortMin - this.config.transitionZone;
     const transitionMaxEnd = comfortMax + this.config.transitionZone;
     
@@ -491,11 +539,12 @@ class RotationContinueExercise {
     
     // Log uniquement si changement significatif
     if (Math.abs(this.lastPlaybackRate - this.smoothedPlaybackRate) > 0.02) {
-      console.log(`[RotationContinue] Avg: ${this.averageVelocity.toFixed(1)}°/s → ${this.smoothedPlaybackRate.toFixed(2)}x dir:${this.stableDirection}`);
+      const dirSymbol = this.stableDirection === 1 ? '↻' : '↺';
+      console.log(`[RotationContinue] Avg: ${this.averageVelocity.toFixed(1)}°/s → ${this.smoothedPlaybackRate.toFixed(2)}x ${dirSymbol}`);
       this.lastPlaybackRate = this.smoothedPlaybackRate;
     }
     
-    // ✅ Appliquer avec direction STABLE
+    // Appliquer avec direction STABLE
     this.audioOrchestrator.setPlaybackRate(this.smoothedPlaybackRate, this.stableDirection);
   }
   
@@ -627,7 +676,8 @@ class RotationContinueExercise {
       isLockedInComfort: this.isLockedInComfort,
       isRepositioning: this.isRepositioning,
       direction: this.stableDirection,
-      bufferSize: this.velocityBuffer.length
+      bufferSize: this.velocityBuffer.length,
+      cumulativeAngle: this.cumulativeAngle
     };
   }
   
