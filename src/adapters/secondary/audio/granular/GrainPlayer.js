@@ -27,15 +27,28 @@ class GrainPlayer {
    * @param {number} volume - Volume (0.0 à 1.0)
    * @param {string} windowType - Type de fenêtre ('hann', 'hamming', etc.)
    * @param {AudioNode} destination - Destination audio (généralement audioContext.destination)
+   * @param {number} direction - Direction de lecture (1 = avant, -1 = arrière)
    * @returns {Object} Référence au grain joué (pour nettoyage)
    */
-  playGrain(audioBuffer, startTime, grainDuration, playbackRate, volume, windowType, destination) {
+  playGrain(audioBuffer, startTime, grainDuration, playbackRate, volume, windowType, destination, direction = 1) {
     const now = this.audioContext.currentTime;
+    
+    // ═══════════════════════════════════════════════════════════
+    // LECTURE INVERSÉE : Créer un buffer inversé pour ce grain
+    // ═══════════════════════════════════════════════════════════
+    let bufferToPlay = audioBuffer;
+    let offset = Math.max(0, Math.min(startTime, audioBuffer.duration - grainDuration));
+    
+    if (direction === -1) {
+      // Créer un mini-buffer inversé pour ce grain uniquement
+      bufferToPlay = this._createReversedGrainBuffer(audioBuffer, offset, grainDuration);
+      offset = 0; // Le buffer inversé commence à 0
+    }
     
     // Créer le source node
     const source = this.audioContext.createBufferSource();
-    source.buffer = audioBuffer;
-    source.playbackRate.value = playbackRate;
+    source.buffer = bufferToPlay;
+    source.playbackRate.value = Math.abs(playbackRate); // Toujours positif
     
     // Créer le gain node pour l'enveloppe
     const gainNode = this.audioContext.createGain();
@@ -53,7 +66,6 @@ class GrainPlayer {
     gainNode.connect(destination);
     
     // Démarrer la lecture
-    const offset = Math.max(0, Math.min(startTime, audioBuffer.duration - grainDuration));
     source.start(now, offset, grainDuration);
     
     // Arrêter et nettoyer après la durée du grain
@@ -78,6 +90,48 @@ class GrainPlayer {
     this.limitActiveGrains();
     
     return grain;
+  }
+
+  /**
+   * Crée un buffer audio inversé pour un grain spécifique
+   * @private
+   * @param {AudioBuffer} sourceBuffer - Buffer source
+   * @param {number} startTime - Position de départ (secondes)
+   * @param {number} duration - Durée du grain (secondes)
+   * @returns {AudioBuffer} Buffer inversé
+   */
+  _createReversedGrainBuffer(sourceBuffer, startTime, duration) {
+    const sampleRate = sourceBuffer.sampleRate;
+    const startSample = Math.floor(startTime * sampleRate);
+    const lengthSamples = Math.floor(duration * sampleRate);
+    const numChannels = sourceBuffer.numberOfChannels;
+    
+    // Créer un nouveau buffer pour le grain inversé
+    const reversedBuffer = this.audioContext.createBuffer(
+      numChannels,
+      lengthSamples,
+      sampleRate
+    );
+    
+    // Pour chaque canal
+    for (let channel = 0; channel < numChannels; channel++) {
+      const sourceData = sourceBuffer.getChannelData(channel);
+      const reversedData = reversedBuffer.getChannelData(channel);
+      
+      // Copier et inverser les échantillons
+      for (let i = 0; i < lengthSamples; i++) {
+        const sourceIndex = startSample + i;
+        const reversedIndex = lengthSamples - 1 - i;
+        
+        if (sourceIndex < sourceData.length) {
+          reversedData[reversedIndex] = sourceData[sourceIndex];
+        } else {
+          reversedData[reversedIndex] = 0; // Silence si dépassement
+        }
+      }
+    }
+    
+    return reversedBuffer;
   }
 
   /**
