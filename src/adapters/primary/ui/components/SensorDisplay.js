@@ -1,11 +1,15 @@
 ﻿// src/adapters/primary/ui/components/SensorDisplay.js
+// ⚠️ LEGACY CODE - Not currently used in the application
+// Kept for reference - Bluetooth now handled by SensorIPCClient + BluetoothOrchestrator
 
+// UNCOMMENT BELOW IF YOU NEED TO REACTIVATE THIS CLASS
+/*
 const { getInstance: getBluetoothService } = require('../services/BluetoothService');
 
 class SensorDisplay {
   constructor(container, api) {
     this.container = container;
-    this.api = api; // Gardé pour compatibilité future
+    this.api = api;
     this.bluetoothService = getBluetoothService();
     this.leftDisplay = null;
     this.rightDisplay = null;
@@ -38,12 +42,10 @@ class SensorDisplay {
   }
 
   setupEventListeners() {
-    // Bouton de scan
     this.scanButton.addEventListener('click', () => this.toggleScan());
   }
 
   setupBluetoothCallbacks() {
-    // Callbacks Bluetooth directs
     this.bluetoothService.onConnected((data) => this.handleSensorConnected(data));
     this.bluetoothService.onDisconnected((data) => this.handleSensorDisconnected(data));
     this.bluetoothService.onData((data) => this.handleSensorData(data));
@@ -65,7 +67,6 @@ class SensorDisplay {
     this.updateScanButton('Recherche en cours...', '#e74c3c', false);
     this.hideError();
     
-    // Réinitialiser l'affichage
     this.deviceList.innerHTML = '';
     this.leftDisplay = this.createDeviceDisplay('GAUCHE', 'blue');
     this.rightDisplay = this.createDeviceDisplay('DROIT', 'green');
@@ -83,7 +84,6 @@ class SensorDisplay {
       this.updateScanButton('Réessayer', '#e74c3c', true);
       this.isScanning = false;
       
-      // Afficher des instructions d'aide
       if (error.message.includes('Bluetooth')) {
         this.showBluetoothHelp();
       }
@@ -190,7 +190,6 @@ class SensorDisplay {
     if (display) {
       display.updateStatus(false);
     }
-    // Réactiver le scan si nécessaire
     this.updateScanButton('Rechercher les capteurs', '#4CAF50', true);
     this.isScanning = false;
   }
@@ -220,12 +219,10 @@ class SensorDisplay {
     this.hideError();
   }
 
-  // Méthode pour mettre à jour la configuration
   updateConfig(config) {
     this.bluetoothService.updateConfig(config);
   }
 
-  // Méthode publique pour obtenir l'état des capteurs
   getStatus() {
     const leftConnected = this.bluetoothService.connectedDevices.has(
       this.bluetoothService.config.leftAddress.toLowerCase()
@@ -242,7 +239,10 @@ class SensorDisplay {
   }
 }
 
-// Export pour utilisation
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = SensorDisplay;
 }
+*/
+
+// LEGACY CODE END
+// If you need this class, uncomment the entire block above
