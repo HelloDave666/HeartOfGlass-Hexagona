@@ -71,20 +71,47 @@ class SensorUtils {
   }
 
   /**
+   * Parse un entier signé 16 bits (little endian)
+   * @param {number} highByte - Byte de poids fort
+   * @param {number} lowByte - Byte de poids faible
+   * @returns {number} - Valeur signée
+   * @private
+   */
+  static _parseSignedInt16(highByte, lowByte) {
+    const value = (highByte << 8) | lowByte;
+    return value > 32767 ? value - 65536 : value;
+  }
+
+  /**
    * Parse les données du protocole BWT901BLECL5.0
    * @param {Uint8Array|Array} data - Données brutes du capteur
-   * @returns {Object|null} - { x, y, z } en degrés ou null si invalide
+   * @returns {Object|null} - { angles: {x,y,z}, gyro: {x,y,z}, accel: {x,y,z} } ou null si invalide
    */
   static parseBWT901Data(data) {
     if (!data || data.length < 20) return null;
-    
+
     // Protocole BWT901BLECL5.0 : header 0x55 0x61
     if (data[0] !== 0x55 || data[1] !== 0x61) return null;
-    
+
     return {
-      x: ((data[15] << 8 | data[14]) / 32768 * 180),
-      y: ((data[17] << 8 | data[16]) / 32768 * 180),
-      z: ((data[19] << 8 | data[18]) / 32768 * 180)
+      // Angles Euler (bytes 14-19) - limités à ±180° / ±90°
+      angles: {
+        x: SensorUtils._parseSignedInt16(data[15], data[14]) / 32768 * 180,
+        y: SensorUtils._parseSignedInt16(data[17], data[16]) / 32768 * 180,
+        z: SensorUtils._parseSignedInt16(data[19], data[18]) / 32768 * 180
+      },
+      // Vitesses angulaires - gyroscope (bytes 8-13) en °/s
+      gyro: {
+        x: SensorUtils._parseSignedInt16(data[9], data[8]) / 32768 * 2000,
+        y: SensorUtils._parseSignedInt16(data[11], data[10]) / 32768 * 2000,
+        z: SensorUtils._parseSignedInt16(data[13], data[12]) / 32768 * 2000
+      },
+      // Accélération (bytes 2-7) en g
+      accel: {
+        x: SensorUtils._parseSignedInt16(data[3], data[2]) / 32768 * 16,
+        y: SensorUtils._parseSignedInt16(data[5], data[4]) / 32768 * 16,
+        z: SensorUtils._parseSignedInt16(data[7], data[6]) / 32768 * 16
+      }
     };
   }
 

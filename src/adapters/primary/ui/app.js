@@ -70,45 +70,82 @@ let controllers = {};
 let orchestrators = {};
 
 // ╔═══════════════════════════════════════════════════════════════╗
-// ║ AJOUT 1/4 : Variable pour le contrôleur d'exercices          ║
+// ║ AJOUT 1/5 : Variable pour le contrôleur d'exercices          ║
 // ╚═══════════════════════════════════════════════════════════════╝
 let exerciseController = null;
 
-// Stocker les derniers angles de chaque capteur pour l'exercice
+// ╔═══════════════════════════════════════════════════════════════╗
+// ║ AJOUT 2/5 : Variable pour l'orchestrateur de calibration     ║
+// ╚═══════════════════════════════════════════════════════════════╝
+let calibrationOrchestrator = null;
+
+// ✅ MODIFIÉ : Stocker toutes les données de chaque capteur (angles, gyro, accel)
 let lastSensorAngles = {
-  left: { x: 0, y: 0, z: 0 },
-  right: { x: 0, y: 0, z: 0 }
+  left: {
+    angles: { x: 0, y: 0, z: 0 },
+    gyro: { x: 0, y: 0, z: 0 },
+    accel: { x: 0, y: 0, z: 0 }
+  },
+  right: {
+    angles: { x: 0, y: 0, z: 0 },
+    gyro: { x: 0, y: 0, z: 0 },
+    accel: { x: 0, y: 0, z: 0 }
+  }
 };
 
 // ========================================
 // CALLBACKS
 // ========================================
 
-function updateAngles(position, angles) {
+function updateAngles(position, sensorData) {
   // ╔═══════════════════════════════════════════════════════════════╗
-  // ║ AJOUT 2/4 : Router vers exercice si actif                    ║
+  // ║ AJOUT 3/5 : Router vers calibration si active (priorité 1)   ║
   // ╚═══════════════════════════════════════════════════════════════╝
-  
-  // Mettre à jour les angles stockés
+
+  // Support de l'ancien format (angles uniquement) pour compatibilité
+  const angles = sensorData.angles || sensorData;
+  const gyro = sensorData.gyro || { x: 0, y: 0, z: 0 };
+  const accel = sensorData.accel || { x: 0, y: 0, z: 0 };
+
+  // ✅ MODIFIÉ : Stocker toutes les données du capteur (angles + gyro + accel)
   const side = position === 'GAUCHE' ? 'left' : 'right';
-  lastSensorAngles[side] = { ...angles };
-  
+  lastSensorAngles[side] = { angles: { ...angles }, gyro: { ...gyro }, accel: { ...accel } };
+
+  // PRIORITÉ 1 : Si calibration active, router uniquement vers calibration
+  if (calibrationOrchestrator && calibrationOrchestrator.currentPhase !== null) {
+    // Passer les données complètes du capteur DROIT à l'orchestrateur de calibration
+    // (on utilise le capteur droit comme référence pour la calibration)
+    if (position === 'DROIT') {
+      calibrationOrchestrator.processIMUData({ angles, gyro, accel });
+    }
+
+    // Mettre à jour l'UI des capteurs pour feedback visuel (angles seulement pour l'instant)
+    controllers.sensorUIController.updateAngles(position, angles);
+
+    // Ne pas appliquer audio ni exercices pendant calibration
+    return;
+  }
+
+  // ╔═══════════════════════════════════════════════════════════════╗
+  // ║ PRIORITÉ 2 : Router vers exercice si actif                   ║
+  // ╚═══════════════════════════════════════════════════════════════╝
+
   // Si un exercice est actif, router les données vers lui SEULEMENT
   if (exerciseController && exerciseController.currentExercise) {
     // Passer seulement les angles de la main DROITE à l'exercice
     if (position === 'DROIT') {
       exerciseController.updateAngles(lastSensorAngles.right);
     }
-    
+
     // Mettre à jour l'UI des capteurs quand même (pour voir les angles)
     controllers.sensorUIController.updateAngles(position, angles);
-    
+
     // Ne pas appliquer l'audio standard (l'exercice s'en occupe)
     return;
   }
-  
+
   // ╔═══════════════════════════════════════════════════════════════╗
-  // ║ COMPORTEMENT NORMAL (si aucun exercice actif)                ║
+  // ║ PRIORITÉ 3 : COMPORTEMENT NORMAL (si rien d'actif)           ║
   // ╚═══════════════════════════════════════════════════════════════╝
   controllers.sensorUIController.updateAngles(position, angles);
   
@@ -276,6 +313,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             controllers.audioUIController.updateVolumeDisplay(state.getAudioState());
           }
         }
+      },
+      calibrationCallbacks: {
+        onCalibrationUpdate: (update) => {
+          console.log('[App→Calibration] Update:', update);
+        },
+        onCalibrationComplete: (data) => {
+          console.log('[App→Calibration] Calibration complète:', data);
+          console.log('[App→Calibration] Ranges sauvegardés dans StateManager');
+        }
       }
     }
   });
@@ -316,18 +362,31 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   
   // ╔═══════════════════════════════════════════════════════════════╗
-  // ║ AJOUT 3/4 : Initialisation ExerciseController                ║
+  // ║ AJOUT 4/5 : Récupérer CalibrationOrchestrator                ║
+  // ╚═══════════════════════════════════════════════════════════════╝
+  calibrationOrchestrator = controllers.calibrationOrchestrator;
+
+  if (calibrationOrchestrator) {
+    console.log('[App] ✓ CalibrationOrchestrator connecté');
+    console.log('[App] 💡 Onglet Calibration disponible dans l\'interface');
+  } else {
+    console.warn('[App] CalibrationOrchestrator non disponible');
+  }
+
+  // ╔═══════════════════════════════════════════════════════════════╗
+  // ║ AJOUT 5/5 : Initialisation ExerciseController                ║
   // ╚═══════════════════════════════════════════════════════════════╝
   try {
     const ExerciseController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'ExerciseController.js'));
-    
+
     exerciseController = new ExerciseController({
       audioOrchestrator: orchestrators.audio,
-      state
+      state,
+      calibrationOrchestrator: calibrationOrchestrator
     });
-    
+
     exerciseController.initialize();
-    
+
     // Exposer les commandes globalement (pour console)
     if (window) {
       // @ts-ignore
@@ -335,18 +394,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('[App] Démarrage exercice RotationContinue...');
         exerciseController.startExercise('rotationContinue');
       };
-      
+
       // @ts-ignore
       window.stopRotationExercise = () => {
         console.log('[App] Arrêt exercice actif...');
         exerciseController.stopCurrentExercise();
       };
-      
+
       // @ts-ignore
       window.getExerciseStatus = () => {
         return exerciseController.getStatus();
       };
-      
+
       console.log('[App] ✓ ExerciseController prêt');
       console.log('[App] 💡 Commandes exercices:');
       console.log('   - window.startRotationExercise()');
@@ -372,10 +431,14 @@ if (window.require) {
     console.log('[App] Fermeture - Nettoyage...');
     
     // ╔═══════════════════════════════════════════════════════════════╗
-    // ║ AJOUT 4/4 : Cleanup ExerciseController                       ║
+    // ║ Cleanup ExerciseController & CalibrationOrchestrator         ║
     // ╚═══════════════════════════════════════════════════════════════╝
     if (exerciseController) {
       exerciseController.dispose();
+    }
+
+    if (calibrationOrchestrator && calibrationOrchestrator.dispose) {
+      calibrationOrchestrator.dispose();
     }
     
     // Cleanup orchestrateurs

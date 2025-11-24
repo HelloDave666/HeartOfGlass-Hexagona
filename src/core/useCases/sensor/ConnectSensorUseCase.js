@@ -80,15 +80,17 @@ class ConnectSensorUseCase {
           if (!sensor.calibrationOffset.x && !sensor.calibrationOffset.y && !sensor.calibrationOffset.z) {
             sensor.calibrate(sensorData.angles);
           }
-          
+
           // Mettre à jour les angles
           sensor.updateAngles(sensorData.angles);
-          
-          // Émettre l'événement de données
+
+          // Émettre l'événement de données avec TOUTES les données (angles + gyro + accel)
           this.eventBus.emit('sensor:data', {
             address: sensor.address,
             position: sensor.position,
-            angles: sensor.currentAngles
+            angles: sensor.currentAngles,
+            gyro: sensorData.gyro,      // ✅ Ajout du gyroscope
+            accel: sensorData.accel     // ✅ Ajout de l'accélération
           });
         }
       } else if (SensorData.isBatteryData(rawData)) {

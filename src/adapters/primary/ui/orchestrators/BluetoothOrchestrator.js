@@ -142,27 +142,34 @@ class BluetoothOrchestrator {
     ipcRenderer.on('sensor:data', (event, data) => {
       const address = data.address.toLowerCase();
       const sensorInfo = this._getSensorInfo(address);
-      
+
       if (!sensorInfo) return;
-      
+
       if (!this.state.getSensorsWithData().has(address)) {
         console.log('[BluetoothOrchestrator] IPC - Premières données:', sensorInfo.position);
         this.state.getSensorsWithData().add(address);
         this._checkIfReady();
       }
-      
+
       if (!this.state.getCalibrationOffsets().has(address)) {
-        this.state.getCalibrationOffsets().set(address, { 
-          x: data.angles.x, 
-          y: data.angles.y, 
-          z: data.angles.z 
+        this.state.getCalibrationOffsets().set(address, {
+          x: data.angles.x,
+          y: data.angles.y,
+          z: data.angles.z
         });
       }
-      
+
       const offsets = this.state.getCalibrationOffsets().get(address);
-      const normalized = this.SensorUtils.normalizeAnglesWithOffset(data.angles, offsets);
-      
-      this._updateAngles(sensorInfo.position, normalized);
+      const normalizedAngles = this.SensorUtils.normalizeAnglesWithOffset(data.angles, offsets);
+
+      // ✅ Passer toutes les données (angles normalisés + gyro + accel)
+      const fullSensorData = {
+        angles: normalizedAngles,
+        gyro: data.gyro || { x: 0, y: 0, z: 0 },    // Fallback pour compatibilité
+        accel: data.accel || { x: 0, y: 0, z: 0 }   // Fallback pour compatibilité
+      };
+
+      this._updateAngles(sensorInfo.position, fullSensorData);
     });
     
     ipcRenderer.on('sensors:ready', () => {

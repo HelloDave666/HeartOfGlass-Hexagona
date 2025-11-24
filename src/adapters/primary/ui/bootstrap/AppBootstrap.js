@@ -11,6 +11,9 @@ const AudioUIController = require(path.join(projectRoot, 'src', 'adapters', 'pri
 const RecordingController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'RecordingController.js'));
 const TimelineController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'TimelineController.js'));
 const IMUController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'IMUController.js'));
+const CalibrationUIController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'CalibrationUIController.js'));
+
+const CalibrationOrchestrator = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'orchestrators', 'CalibrationOrchestrator.js'));
 
 /**
  * Module Bootstrap pour l'initialisation de tous les contrôleurs UI
@@ -38,6 +41,9 @@ class AppBootstrap {
     const timelineController = this.setupTimelineInterface(state, callbacks.timelineCallbacks);
     const imuController = this.setupIMUInterface(IMU_MAPPING, callbacks.imuCallbacks);
 
+    // 🆕 Setup calibration interface
+    const { calibrationOrchestrator, calibrationUIController } = this.setupCalibrationInterface(state, callbacks.calibrationCallbacks);
+
     console.log('[AppBootstrap] ✓ Tous les contrôleurs initialisés');
 
     return {
@@ -46,7 +52,9 @@ class AppBootstrap {
       audioUIController,
       recordingController,
       timelineController,
-      imuController
+      imuController,
+      calibrationOrchestrator,
+      calibrationUIController
     };
   }
 
@@ -200,6 +208,58 @@ class AppBootstrap {
     
     console.log('[IMU] Interface IMU configurée');
     return imuController;
+  }
+
+  /**
+   * Setup CalibrationOrchestrator et CalibrationUIController
+   * @param {Object} state - StateManager
+   * @param {Object} callbacks - Callbacks calibration (optionnel)
+   * @returns {Object} { calibrationOrchestrator, calibrationUIController }
+   */
+  static setupCalibrationInterface(state, callbacks = {}) {
+    console.log('[Calibration] Configuration interface calibration...');
+
+    // Créer l'orchestrateur de calibration
+    const calibrationOrchestrator = new CalibrationOrchestrator({
+      state: state,
+      onCalibrationUpdate: callbacks.onCalibrationUpdate || ((update) => {
+        console.log('[Calibration] Update:', update);
+      }),
+      onCalibrationComplete: callbacks.onCalibrationComplete || ((data) => {
+        console.log('[Calibration] Complète:', data);
+      })
+    });
+
+    // Créer le contrôleur UI de calibration
+    const calibrationUIController = new CalibrationUIController({
+      calibrationOrchestrator: calibrationOrchestrator
+    });
+
+    // Connecter les callbacks de l'orchestrateur au contrôleur
+    calibrationOrchestrator.onCalibrationUpdate = (update) => {
+      calibrationUIController.onCalibrationUpdate(update);
+      if (callbacks.onCalibrationUpdate) {
+        callbacks.onCalibrationUpdate(update);
+      }
+    };
+
+    calibrationOrchestrator.onCalibrationComplete = (data) => {
+      calibrationUIController.onCalibrationComplete(data);
+      if (callbacks.onCalibrationComplete) {
+        callbacks.onCalibrationComplete(data);
+      }
+    };
+
+    // Initialiser le contrôleur UI
+    const initialized = calibrationUIController.initialize('calibrationTab');
+
+    if (!initialized) {
+      console.error('[AppBootstrap] Échec initialisation CalibrationUIController');
+      return { calibrationOrchestrator: null, calibrationUIController: null };
+    }
+
+    console.log('[Calibration] Interface calibration configurée');
+    return { calibrationOrchestrator, calibrationUIController };
   }
 }
 

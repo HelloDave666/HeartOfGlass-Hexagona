@@ -9,9 +9,10 @@
 const path = require('path');
 
 class ExerciseController {
-  constructor({ audioOrchestrator, state }) {
+  constructor({ audioOrchestrator, state, calibrationOrchestrator }) {
     this.audioOrchestrator = audioOrchestrator;
     this.state = state;
+    this.calibrationOrchestrator = calibrationOrchestrator;
     
     // Exercice actif
     this.currentExercise = null;
@@ -78,7 +79,8 @@ class ExerciseController {
       const ExerciseClass = exerciseConfig.class;
       this.currentExercise = new ExerciseClass({
         audioOrchestrator: this.audioOrchestrator,
-        state: this.state
+        state: this.state,
+        calibrationOrchestrator: this.calibrationOrchestrator
       });
       
       this.currentExerciseName = exerciseName;
@@ -130,13 +132,14 @@ class ExerciseController {
   }
   
   /**
-   * Met à jour les angles depuis les capteurs
-   * À appeler depuis app.js quand les angles changent
-   * @param {Object} angles - {x, y, z}
+   * Met à jour les données capteurs depuis les IMU
+   * ✅ MODIFIÉ : Accepte maintenant toutes les données du capteur
+   * À appeler depuis app.js quand les données capteurs changent
+   * @param {Object} sensorData - { angles: {x,y,z}, gyro: {x,y,z}, accel: {x,y,z} }
    */
-  updateAngles(angles) {
+  updateAngles(sensorData) {
     if (this.currentExercise && this.currentExercise.update) {
-      this.currentExercise.update(angles);
+      this.currentExercise.update(sensorData);
     }
   }
   
