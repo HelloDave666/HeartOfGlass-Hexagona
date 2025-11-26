@@ -111,7 +111,6 @@ class AppBootstrap {
       onGrainSizeChange: callbacks.onGrainSizeChange,
       onOverlapChange: callbacks.onOverlapChange,
       onWindowChange: callbacks.onWindowChange,
-      onIMUToggle: callbacks.onIMUToggle,
       onRecordToggle: callbacks.onRecordToggle
     });
     

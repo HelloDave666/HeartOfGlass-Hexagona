@@ -1,5 +1,13 @@
 /**
- * RotationContinueExercise.js - VERSION 3.4 PHASE D
+ * RotationContinueExercise.js - VERSION 3.4
+ *
+ * 🆕 v3.4 : CONTRÔLE DE VOLUME POTENTIOMÈTRE
+ * - Capteur GAUCHE contrôle le volume comme un potentiomètre physique
+ * - Zone gauche (270°-360°): 0% → 50% volume (rotation antihoraire)
+ * - Position centrale (0°): 50% volume initial
+ * - Zone droite (0°-90°): 50% → 100% volume (rotation horaire)
+ * - Zone morte (90°-270°): maintient le volume actuel
+ * - Butées virtuelles pour simulation réaliste
  *
  * PHASE D : Calibration Interactive Guidée
  * - 🆕 PHASE D : Calibration en 3 étapes (Repos → Horaire → Antihoraire)
@@ -8,36 +16,38 @@
  * - 🆕 PHASE D : UI visuelle avec barre de progression
  * - 🆕 PHASE D : Verrouillage réduit à 800ms (vs 1500ms)
  *
- * Basé sur v3.2 (STABLE) :
- * ✅ 1. SEUIL RÉDUIT : 70% au lieu de 80%
- * ✅ 2. TEMPS STABILITÉ RÉDUIT : 500ms au lieu de 1000ms
- * ✅ 3. FENÊTRE RÉDUITE : 15 échantillons au lieu de 20
- * ✅ 4. ZONE CONFORT DYNAMIQUE
- * ✅ 5. TRANSITIONS PLUS DOUCES (lissage 0.85)
+ * Basé sur v3.2/3.3 (ULTRA-RÉACTIF) :
+ * ✅ 1. SEUIL RÉDUIT : 65% au lieu de 70%
+ * ✅ 2. TEMPS STABILITÉ RÉDUIT : 200ms au lieu de 500ms (2.5x plus rapide)
+ * ✅ 3. FENÊTRE RÉDUITE : 8 échantillons au lieu de 15 (2x plus rapide)
+ * ✅ 4. ZONE CONFORT ÉLARGIE : ±240°/s au lieu de ±180°/s (33% plus large)
+ * ✅ 5. LISSAGE ADAPTATIF : s'adapte à la variance de mouvement
+ * ✅ 6. DÉTECTION PRÉDICTIVE : anticipe les changements via accélération
  *
  * Architecture: Adapter - Logique métier de l'exercice
  */
 
 class RotationContinueExercise {
-  constructor({ audioOrchestrator, state, calibrationOrchestrator }) {
+  constructor({ audioOrchestrator, state, calibrationOrchestrator, audioUIController }) {
     this.audioOrchestrator = audioOrchestrator;
     this.state = state;
     this.calibrationOrchestrator = calibrationOrchestrator;
+    this.audioUIController = audioUIController;
     
     // Configuration de l'exercice
     this.config = {
       targetSpeed: 360,           // 1 tour par seconde
-      comfortZone: 180,           // Zone ±180°/s = [180-540°/s]
+      comfortZone: 240,           // 🚀 v3.3 : Zone élargie ±240°/s = [120-600°/s] (vs ±180) → plus facile à trouver
       transitionZone: 180,
 
       duration: 300000,           // 5 minutes
       checkInterval: 100,
-      smoothingFactor: 0.85,      // ✅ v3.1 : Lissage renforcé (0.85 vs 0.7)
+      smoothingFactor: 0.65,      // 🚀 v3.3 : Lissage encore réduit (0.65 vs 0.70) → ultra-réactif
 
       // Paramètres fenêtre glissante
       samplingWindow: 4000,
-      hysteresisMargin: 40,
-      minSamplesForDecision: 8,
+      hysteresisMargin: 30,       // 🚀 v3.3 : Réduit de 40 à 30 → transitions plus fluides
+      minSamplesForDecision: 5,   // 🚀 v3.3 : Réduit de 6 à 5 → réaction instantanée
 
       // Validation dt robuste
       minValidDt: 0.01,
@@ -49,22 +59,48 @@ class RotationContinueExercise {
       repositionMaxDuration: 2500,
       freezePlaybackDuringReposition: true,
 
-      // ✅ v3.1 : Détection direction OPTIMISÉE
-      directionWindowSize: 15,            // 15 échantillons (~450ms à 30Hz)
-      directionChangeThreshold: 0.70,     // 70% des deltas (vs 80% avant)
-      directionStabilityTime: 500,        // 500ms (vs 1000ms avant)
+      // 🚀 v3.2 : Détection direction ULTRA-RÉACTIVE
+      directionWindowSize: 8,             // 🚀 8 échantillons (~240ms à 30Hz) vs 15
+      directionChangeThreshold: 0.65,     // 🚀 65% des deltas (vs 70%) → plus sensible
+      directionStabilityTime: 200,        // 🚀 200ms (vs 500ms) → détection 2.5x plus rapide
 
-      // 🆕 PHASE D : Anti-oscillation réduit
-      directionChangeLockTime: 800,       // Verrouillage 800ms après changement (vs 1500ms)
+      // 🚀 v3.2 : Anti-oscillation très réduit
+      directionChangeLockTime: 300,       // 🚀 300ms (vs 800ms) → changements rapides possibles
 
-      // ✅ v3.1 : Zone confort dynamique
+      // 🆕 Transition douce lors changement de direction (anti-artefacts audio)
+      directionTransitionDuration: 250,    // Durée transition 250ms pour éviter les sautes
+      directionTransitionSpeedFactor: 0.4, // Réduire à 40% de la vitesse pendant transition
+
+      // 🚀 v3.3 : Lissage adaptatif dynamique ultra-réactif
       comfortZoneLockEnabled: false,      // Ne plus verrouiller à 1.0x
-      comfortZoneSmoothingFactor: 0.95,   // Lissage TRÈS fort dans zone confort
+      comfortZoneSmoothingFactor: 0.60,   // 🚀 v3.3 : Lissage encore réduit (0.60 vs 0.65) → zone confort ultra-réactive
+
+      // 🚀 v3.3 : IDÉE 1 - Lissage adaptatif affiné
+      adaptiveSmoothingEnabled: true,     // Activer lissage adaptatif
+      baseSmoothingFactor: 0.55,          // 🚀 v3.3 : Lissage minimal réduit (0.55 vs 0.60) → mouvement régulier TRÈS réactif
+      maxSmoothingFactor: 0.80,           // 🚀 v3.3 : Lissage maximal réduit (0.80 vs 0.85) → mouvement irrégulier plus fluide
+      varianceThreshold: 60,              // 🚀 v3.3 : Seuil augmenté (60 vs 50) → tolérance accrue
+
+      // 🆕 v3.2 : IDÉE 2 - Détection prédictive par accélération
+      predictiveDetectionEnabled: true,   // Activer détection prédictive
+      accelerationThreshold: 800,         // Seuil d'accélération angulaire (°/s²)
+      earlyDetectionBonus: 150,           // Réduction du temps de stabilité si accélération détectée (ms)
 
       // 🆕 PHASE D : Calibration interactive guidée
       calibrationRestDuration: 4000,      // 4s repos pour mesurer bruit de fond
       calibrationStepDuration: 6000,      // 6s par rotation (horaire + antihoraire)
-      calibrationMinSamples: 30           // Minimum 30 échantillons par phase (~1s à 30Hz)
+      calibrationMinSamples: 30,          // Minimum 30 échantillons par phase (~1s à 30Hz)
+
+      // 🚀 v3.4 : Contrôle de volume POTENTIOMÈTRE avec capteur GAUCHE
+      volumeControlEnabled: true,         // Activer contrôle volume capteur gauche
+      volumeCenterAngle: 0,               // Position centrale (0°) = 50% volume
+      volumeRightZoneEnd: 90,             // Butée droite (90°) = 100% volume (rotation horaire)
+      volumeLeftZoneStart: 270,           // Butée gauche (270° ou -90°) = 0% volume (rotation antihoraire)
+      volumeDeadZoneStart: 90,            // Début zone morte (90° à 270°)
+      volumeDeadZoneEnd: 270,             // Fin zone morte
+      volumeSmoothingFactor: 0.45,        // Lissage pour transitions fluides
+      volumeInitialValue: 0.5,            // Volume initial au démarrage (50%)
+      leftSensorInverted: true            // Capteur gauche inversé (main opposée)
     };
     
     // Paramètres audio optimisés
@@ -83,13 +119,20 @@ class RotationContinueExercise {
     this.lastAngularVelocity = 0;
     this.lastPlaybackRate = 1.0;
     this.smoothedPlaybackRate = 1.0;
-    this.imuWasEnabled = false;
-    
+
     // État fenêtre glissante
     this.velocityBuffer = [];
     this.averageVelocity = 0;
     this.isInComfortZone = false;        // ✅ v3.1 : Renommé (pas "locked")
-    
+
+    // 🆕 v3.2 : Lissage adaptatif basé sur variance
+    this.currentVariance = 0;            // Variance actuelle de la vitesse (°/s)²
+    this.adaptiveSmoothingFactor = this.config.smoothingFactor;  // Facteur de lissage adaptatif
+
+    // 🆕 v3.2 : Détection prédictive par accélération
+    this.currentAngularAcceleration = 0; // Accélération angulaire (°/s²)
+    this.lastVelocityTimestamp = 0;      // Timestamp de la dernière mesure pour calcul accélération
+
     // Détection direction
     this.signedDeltaBuffer = [];
     this.currentDirection = 1;
@@ -97,12 +140,28 @@ class RotationContinueExercise {
     this.directionChangeCandidate = null;
     this.directionCandidateStartTime = 0;
 
+    // 🆕 Transition douce lors changement direction
+    this.isInDirectionTransition = false;
+    this.directionTransitionStartTime = 0;
+
     // État repositionnement
     this.isRepositioning = false;
     this.repositionStartTime = null;
     this.frozenPlaybackRate = 1.0;
     this.frozenDirection = 1;
-    
+
+    // 🆕 v3.4 : Contrôle de volume POTENTIOMÈTRE avec capteur gauche
+    this.cumulativeVolumeAngle = 0;      // Angle cumulatif basé sur gyroscope (ne boucle pas)
+    this.lastLeftSensorTimestamp = 0;    // Timestamp dernière lecture capteur gauche
+    this.leftSensorAngle = 0;            // Angle actuel du capteur gauche (°) - pour debug
+    this.currentVolume = 0.5;            // Volume actuel (0.0 à 1.0) - INIT à 50%
+    this.smoothedVolume = 0.5;           // Volume lissé (0.0 à 1.0) - INIT à 50%
+    this.lastVolumeCommand = {           // Dernière commande de volume envoyée
+      volume: 0.5,                       // Volume initial à 50%
+      timestamp: 0
+    };
+    this.lastKnownVolume = 0.5;          // Dernier volume connu (pour zone morte)
+
     // Mémorisation dernière commande audio
     this.lastAudioCommand = {
       rate: 1.0,
@@ -133,7 +192,8 @@ class RotationContinueExercise {
     }
     
     console.log('\n═══════════════════════════════════════════════════════════');
-    console.log('[RotationContinueExercise] VERSION 3.5 - Démarrage...');
+    console.log('[RotationContinueExercise] VERSION 3.4 - Démarrage...');
+    console.log('[RotationContinueExercise] 🔊 Contrôle volume potentiomètre activé');
     console.log('═══════════════════════════════════════════════════════════');
 
     // Vérifier que la calibration globale est disponible
@@ -155,13 +215,6 @@ class RotationContinueExercise {
     }
     console.log('═══════════════════════════════════════════════════════════\n');
 
-    // Sauvegarder et désactiver l'IMU standard
-    this.imuWasEnabled = this.state.isIMUToAudioEnabled();
-    if (this.imuWasEnabled) {
-      console.log('[RotationContinueExercise] 🔇 Désactivation IMU standard');
-      this.state.setIMUToAudioEnabled(false);
-    }
-    
     // Sauvegarder et appliquer les paramètres audio optimisés
     const currentParams = this.state.getAudioParameters();
     this.originalAudioParams = {
@@ -172,7 +225,13 @@ class RotationContinueExercise {
     console.log('[RotationContinueExercise] 🎵 Configuration audio:', this.audioSettings);
     this.audioOrchestrator.setGrainSize(this.audioSettings.grainSize);
     this.audioOrchestrator.setOverlap(this.audioSettings.overlap);
-    
+
+    // 🆕 v3.4 : Initialiser le volume à 50% (position centrale du potentiomètre)
+    if (this.config.volumeControlEnabled && this.audioOrchestrator && this.audioOrchestrator.setVolume) {
+      this.audioOrchestrator.setVolume(this.config.volumeInitialValue);
+      console.log(`[RotationContinueExercise] 🔊 Volume initial: ${(this.config.volumeInitialValue * 100).toFixed(0)}%`);
+    }
+
     this.isActive = true;
     this.startTime = Date.now();
     this.lastTimestamp = null;
@@ -184,13 +243,23 @@ class RotationContinueExercise {
     this.velocityBuffer = [];
     this.averageVelocity = 0;
     this.isInComfortZone = false;
-    
+
+    // 🚀 v3.2 : Réinitialiser lissage adaptatif et détection prédictive
+    this.currentVariance = 0;
+    this.adaptiveSmoothingFactor = this.config.smoothingFactor;
+    this.currentAngularAcceleration = 0;
+    this.lastVelocityTimestamp = 0;
+
     // Réinitialiser détection direction
     this.signedDeltaBuffer = [];
     this.currentDirection = 1;
     this.lastDirectionChangeTime = Date.now();
     this.directionChangeCandidate = null;
     this.directionCandidateStartTime = 0;
+
+    // 🆕 Réinitialiser transition douce
+    this.isInDirectionTransition = false;
+    this.directionTransitionStartTime = 0;
 
     // Réinitialiser état repositionnement
     this.isRepositioning = false;
@@ -208,7 +277,16 @@ class RotationContinueExercise {
       direction: 1,
       timestamp: 0
     };
-    
+
+    // 🆕 v3.3 : Réinitialiser contrôle volume
+    this.leftSensorAngle = 0;
+    this.currentVolume = 1.0;
+    this.smoothedVolume = 1.0;
+    this.lastVolumeCommand = {
+      volume: 1.0,
+      timestamp: 0
+    };
+
     // Démarrer la lecture audio
     if (this.audioOrchestrator) {
       const audioState = this.state.getAudioState();
@@ -265,13 +343,7 @@ class RotationContinueExercise {
       this.audioOrchestrator.setGrainSize(this.originalAudioParams.grainSize);
       this.audioOrchestrator.setOverlap(this.originalAudioParams.overlap);
     }
-    
-    // Restaurer l'état IMU standard
-    if (this.imuWasEnabled) {
-      console.log('[RotationContinueExercise] 🔊 Réactivation IMU standard');
-      this.state.setIMUToAudioEnabled(true);
-    }
-    
+
     // Calculer les statistiques
     const stats = this._calculateStats();
     
@@ -290,9 +362,11 @@ class RotationContinueExercise {
   /**
    * Met à jour avec détection direction robuste
    * ✅ MODIFIÉ : Utilise le gyroscope au lieu des deltas d'angles
+   * 🆕 v3.3 : Supporte capteur GAUCHE pour contrôle volume
    * @param {Object} sensorData - { angles: {x,y,z}, gyro: {x,y,z}, accel: {x,y,z} }
+   * @param {string} position - 'DROIT' (vitesse) ou 'GAUCHE' (volume) - optionnel, par défaut 'DROIT'
    */
-  update(sensorData) {
+  update(sensorData, position = 'DROIT') {
     if (!this.isActive) {
       return;
     }
@@ -303,6 +377,15 @@ class RotationContinueExercise {
     // Support ancien format pour compatibilité
     const angles = sensorData.angles || sensorData;
     const gyro = sensorData.gyro || { x: 0, y: 0, z: 0 };
+
+    // 🆕 v3.4 : Capteur GAUCHE → Contrôle de VOLUME (potentiomètre avec gyroscope)
+    if (position === 'GAUCHE' && this.config.volumeControlEnabled) {
+      console.log(`[RotationContinue] 📍 GAUCHE détecté - Gyro Y: ${gyro.y.toFixed(1)}°/s`);
+      this._updateVolumeFromLeftSensor(angles, gyro, now);
+      return; // Le capteur gauche ne gère QUE le volume
+    }
+
+    // Capteur DROIT → Contrôle de VITESSE (suite du code existant)
 
     // Initialisation au premier appel
     if (this.lastTimestamp === null) {
@@ -453,9 +536,26 @@ class RotationContinueExercise {
       return;
     }
 
+    // 🚀 v3.2 : IDÉE 2 - Détection prédictive par accélération
+    // Si forte accélération détectée, réduire le temps de stabilité requis
+    let requiredStabilityTime = this.config.directionStabilityTime;
+
+    if (this.config.predictiveDetectionEnabled) {
+      // Détecter accélération forte (ralentissement ou changement brusque)
+      const absAcceleration = Math.abs(this.currentAngularAcceleration);
+
+      if (absAcceleration > this.config.accelerationThreshold) {
+        // Forte accélération détectée → réduire le temps de stabilité
+        requiredStabilityTime = Math.max(
+          50, // Minimum 50ms pour éviter faux positifs
+          this.config.directionStabilityTime - this.config.earlyDetectionBonus
+        );
+      }
+    }
+
     // La candidate est stable depuis assez longtemps
     const candidateStabilityDuration = now - this.directionCandidateStartTime;
-    if (candidateStabilityDuration >= this.config.directionStabilityTime) {
+    if (candidateStabilityDuration >= requiredStabilityTime) {
       // CHANGER LA DIRECTION
       const oldDirection = this.currentDirection;
       this.currentDirection = candidateDirection;
@@ -463,12 +563,23 @@ class RotationContinueExercise {
       this.directionChangeCandidate = null;
       this.directionCandidateStartTime = 0;
 
+      // 🆕 ACTIVER TRANSITION DOUCE pour éviter artefacts audio
+      this.isInDirectionTransition = true;
+      this.directionTransitionStartTime = now;
+
       // Calculer gyro moyen pour log
       const avgGyro = this.signedDeltaBuffer.reduce((sum, s) => sum + s.delta, 0) / this.signedDeltaBuffer.length;
 
       const oldArrow = oldDirection === 1 ? '↻' : '↺';
       const newArrow = candidateDirection === 1 ? '↻' : '↺';
-      console.log(`[RotationContinue] 🔄 CHANGEMENT: ${oldArrow} → ${newArrow} (Gyro_moy=${avgGyro.toFixed(1)}°/s | ${candidateStabilityDuration}ms)`);
+
+      // 🚀 v3.2 : Log amélioré avec détection prédictive
+      const predictiveBonus = requiredStabilityTime < this.config.directionStabilityTime;
+      const logDetails = predictiveBonus
+        ? `Gyro=${avgGyro.toFixed(1)}°/s | Accel=${this.currentAngularAcceleration.toFixed(0)}°/s² | ${candidateStabilityDuration}ms ⚡PRÉDIT`
+        : `Gyro=${avgGyro.toFixed(1)}°/s | ${candidateStabilityDuration}ms`;
+
+      console.log(`[RotationContinue] 🔄 CHANGEMENT: ${oldArrow} → ${newArrow} (${logDetails}) → Transition activée`);
     }
   }
   
@@ -615,8 +726,15 @@ class RotationContinueExercise {
     if (this.velocityBuffer.length > 0) {
       const sum = this.velocityBuffer.reduce((acc, s) => acc + s.velocity, 0);
       this.averageVelocity = sum / this.velocityBuffer.length;
+
+      // 🚀 v3.2 : IDÉE 2 - Calculer l'accélération angulaire pour détection prédictive
+      this.currentAngularAcceleration = this._calculateAngularAcceleration(
+        this.averageVelocity,
+        now
+      );
     } else {
       this.averageVelocity = 0;
+      this.currentAngularAcceleration = 0;
     }
   }
   
@@ -706,18 +824,38 @@ class RotationContinueExercise {
       const ratio = this.averageVelocity / this.config.targetSpeed;
       targetPlaybackRate = Math.max(0.25, Math.min(2.0, ratio));
     }
-    
-    // ✅ v3.1 : Lissage adaptatif
-    // Dans zone confort : lissage TRÈS fort (0.95)
-    // Hors zone confort : lissage normal (0.85)
-    const smoothingFactor = this.isInComfortZone 
-      ? this.config.comfortZoneSmoothingFactor 
-      : this.config.smoothingFactor;
-    
-    this.smoothedPlaybackRate = 
-      this.smoothedPlaybackRate * (1 - smoothingFactor) + 
+
+    // 🆕 TRANSITION DOUCE lors changement de direction pour éviter artefacts audio
+    const now = Date.now();
+    if (this.isInDirectionTransition) {
+      const transitionElapsed = now - this.directionTransitionStartTime;
+
+      if (transitionElapsed < this.config.directionTransitionDuration) {
+        // Encore en transition : réduire temporairement la vitesse
+        const transitionFactor = this.config.directionTransitionSpeedFactor;
+        targetPlaybackRate *= transitionFactor;
+
+        // Log uniquement au début de la transition
+        if (transitionElapsed < 50) {
+          console.log(`[RotationContinue] 🎵 Transition audio activée (${this.config.directionTransitionDuration}ms à ${(transitionFactor*100).toFixed(0)}%)`);
+        }
+      } else {
+        // Transition terminée
+        this.isInDirectionTransition = false;
+        console.log(`[RotationContinue] ✅ Transition audio terminée`);
+      }
+    }
+
+    // 🚀 v3.2 : Lissage adaptatif basé sur variance (IDÉE 1)
+    // Variance faible (mouvement régulier) → lissage faible (réactif)
+    // Variance élevée (mouvement irrégulier) → lissage fort (stable)
+    const smoothingFactor = this._calculateAdaptiveSmoothingFactor();
+    this.adaptiveSmoothingFactor = smoothingFactor; // Stocker pour debug
+
+    this.smoothedPlaybackRate =
+      this.smoothedPlaybackRate * (1 - smoothingFactor) +
       targetPlaybackRate * smoothingFactor;
-    
+
     this.smoothedPlaybackRate = Math.round(this.smoothedPlaybackRate * 100) / 100;
     
     // Envoyer commande
@@ -749,26 +887,270 @@ class RotationContinueExercise {
     }
     
     this.audioOrchestrator.setPlaybackRate(rate, direction);
-    
+
+    // 🆕 v3.4 : Mise à jour affichage UI en temps réel
+    if (this.audioUIController && this.audioUIController.updateSpeedDisplay) {
+      // Déterminer si on est en zone confort (neutre)
+      const isNeutral = this.isInComfortZone;
+      this.audioUIController.updateSpeedDisplay(rate, direction, isNeutral);
+    }
+
     this.lastAudioCommand = {
       rate: rate,
       direction: direction,
       timestamp: now
     };
-    
+
     this.audioCommandCount++;
   }
-  
+
+  /**
+   * 🆕 v3.4 : Contrôle de volume POTENTIOMÈTRE avec capteur gauche
+   * ✅ CORRIGÉ : Utilise GYROSCOPE (angle cumulatif) au lieu d'Euler angles (qui bouclent)
+   *
+   * Modèle potentiomètre physique avec butées :
+   * - Zone gauche (-90° à 0°) : 0% → 50% volume (rotation antihoraire)
+   * - Position centrale (0°) : 50% volume
+   * - Zone droite (0° à 90°) : 50% → 100% volume (rotation horaire)
+   * - Zone morte (au-delà de ±90°) : garde le volume actuel (butées physiques)
+   *
+   * @param {Object} angles - Angles Euler du capteur gauche (pour debug uniquement)
+   * @param {Object} gyro - Vitesses angulaires du gyroscope {x, y, z}
+   * @param {number} now - Timestamp actuel
+   * @private
+   */
+  _updateVolumeFromLeftSensor(angles, gyro, now) {
+    // ========================================
+    // 1. CALCUL ANGLE CUMULATIF (GYROSCOPE)
+    // ========================================
+
+    // Calculer dt (temps écoulé depuis dernière lecture)
+    let dt = 0;
+    if (this.lastLeftSensorTimestamp > 0) {
+      dt = (now - this.lastLeftSensorTimestamp) / 1000; // Convertir ms → s
+
+      // Sécurité : ignorer les dt aberrants
+      if (dt > 0.5 || dt <= 0) {
+        console.warn(`[RotationContinue] 🔊 dt aberrant: ${dt}s, ignoré`);
+        dt = 0;
+      }
+    }
+    this.lastLeftSensorTimestamp = now;
+
+    // Récupérer vitesse angulaire Y (°/s)
+    let angularVelocity = gyro.y;
+
+    // 🔄 Inversion pour capteur gauche (main opposée)
+    if (this.config.leftSensorInverted) {
+      angularVelocity = -angularVelocity;
+    }
+
+    // Calculer changement d'angle : delta = vitesse × temps
+    const deltaAngle = angularVelocity * dt;
+
+    // Ajouter au cumul (angle qui ne boucle PAS comme Euler)
+    this.cumulativeVolumeAngle += deltaAngle;
+
+    // Debug
+    console.log(`[RotationContinue] 🔊 Gyro Y: ${gyro.y.toFixed(1)}°/s | dt: ${(dt * 1000).toFixed(0)}ms | Δ: ${deltaAngle.toFixed(1)}° | Cumul: ${this.cumulativeVolumeAngle.toFixed(1)}°`);
+
+    // ========================================
+    // 2. MAPPER ANGLE CUMULATIF → VOLUME
+    // ========================================
+
+    let targetVolume;
+    let zone = 'MORTE';
+
+    // 📍 Zone active DROITE (0° à 90°) : 50% → 100% volume (rotation horaire)
+    if (this.cumulativeVolumeAngle >= 0 && this.cumulativeVolumeAngle <= this.config.volumeRightZoneEnd) {
+      zone = 'DROITE';
+      // Interpolation linéaire : 0° = 50%, 90° = 100%
+      const progress = this.cumulativeVolumeAngle / this.config.volumeRightZoneEnd; // 0.0 à 1.0
+      targetVolume = 0.5 + (progress * 0.5); // 0.5 à 1.0
+      this.lastKnownVolume = targetVolume; // Mémoriser
+      console.log(`[RotationContinue] 🔊 Zone DROITE (${this.cumulativeVolumeAngle.toFixed(1)}°) → ${(targetVolume * 100).toFixed(0)}%`);
+    }
+
+    // 📍 Zone active GAUCHE (-90° à 0°) : 0% → 50% volume (rotation antihoraire)
+    else if (this.cumulativeVolumeAngle < 0 && this.cumulativeVolumeAngle >= -this.config.volumeRightZoneEnd) {
+      zone = 'GAUCHE';
+      // Interpolation linéaire : -90° = 0%, 0° = 50%
+      const progress = (this.cumulativeVolumeAngle + this.config.volumeRightZoneEnd) / this.config.volumeRightZoneEnd; // 0.0 à 1.0
+      targetVolume = progress * 0.5; // 0.0 à 0.5
+      this.lastKnownVolume = targetVolume; // Mémoriser
+      console.log(`[RotationContinue] 🔊 Zone GAUCHE (${this.cumulativeVolumeAngle.toFixed(1)}°) → ${(targetVolume * 100).toFixed(0)}%`);
+    }
+
+    // 📍 Zone MORTE DROITE (> 90°) : garde dernier volume (butée physique)
+    else if (this.cumulativeVolumeAngle > this.config.volumeRightZoneEnd) {
+      zone = 'MORTE_DROITE';
+      targetVolume = this.lastKnownVolume; // Normalement 100%
+      console.log(`[RotationContinue] 🔊 Zone MORTE DROITE (${this.cumulativeVolumeAngle.toFixed(1)}°) → Butée: ${(targetVolume * 100).toFixed(0)}%`);
+    }
+
+    // 📍 Zone MORTE GAUCHE (< -90°) : garde dernier volume (butée physique)
+    else if (this.cumulativeVolumeAngle < -this.config.volumeRightZoneEnd) {
+      zone = 'MORTE_GAUCHE';
+      targetVolume = this.lastKnownVolume; // Normalement 0%
+      console.log(`[RotationContinue] 🔊 Zone MORTE GAUCHE (${this.cumulativeVolumeAngle.toFixed(1)}°) → Butée: ${(targetVolume * 100).toFixed(0)}%`);
+    }
+
+    // Sécurité : fallback
+    else {
+      targetVolume = this.lastKnownVolume;
+      console.log(`[RotationContinue] 🔊 Zone INDÉFINIE (${this.cumulativeVolumeAngle.toFixed(1)}°) → Volume maintenu: ${(targetVolume * 100).toFixed(0)}%`);
+    }
+
+    // ========================================
+    // 3. LISSAGE ET ENVOI
+    // ========================================
+
+    // Clamper le volume entre 0 et 1 (sécurité)
+    targetVolume = Math.max(0.0, Math.min(1.0, targetVolume));
+
+    // Appliquer lissage pour stabilité et transitions fluides
+    const smoothingFactor = this.config.volumeSmoothingFactor;
+    this.smoothedVolume =
+      this.smoothedVolume * (1 - smoothingFactor) +
+      targetVolume * smoothingFactor;
+
+    // Arrondir pour éviter micro-variations
+    this.smoothedVolume = Math.round(this.smoothedVolume * 100) / 100;
+    console.log(`[RotationContinue] 🔊 Volume final (lissé): ${(this.smoothedVolume * 100).toFixed(0)}%`);
+
+    // Envoyer commande volume (avec déduplication)
+    this._sendVolumeCommand(this.smoothedVolume, now);
+  }
+
+  /**
+   * 🆕 v3.3 : Envoie commande de volume avec déduplication
+   * @param {number} volume - Volume (0.0 à 1.0)
+   * @param {number} now - Timestamp actuel
+   * @private
+   */
+  _sendVolumeCommand(volume, now) {
+    const volumeDiff = Math.abs(volume - this.lastVolumeCommand.volume);
+    const timeSinceLastCommand = now - this.lastVolumeCommand.timestamp;
+
+    // Déduplication : ignorer si changement < 2% et délai < 100ms
+    if (volumeDiff < 0.02 && timeSinceLastCommand < 100) {
+      console.log(`[RotationContinue] 🔊 Volume - DÉDUPLIQUÉ (diff: ${(volumeDiff * 100).toFixed(1)}%, délai: ${timeSinceLastCommand}ms)`);
+      return;
+    }
+
+    // Appliquer le volume à l'audioOrchestrator
+    if (this.audioOrchestrator && this.audioOrchestrator.setVolume) {
+      console.log(`[RotationContinue] 🔊 Volume - ENVOYÉ: ${(volume * 100).toFixed(0)}%`);
+      this.audioOrchestrator.setVolume(volume);
+
+      // 🆕 v3.4 : Mise à jour affichage UI en temps réel
+      if (this.audioUIController && this.audioUIController.updateVolumeDisplay) {
+        // Créer un objet audioState temporaire pour l'affichage
+        const tempAudioState = { volume: volume };
+        this.audioUIController.updateVolumeDisplay(tempAudioState);
+      }
+    } else {
+      console.warn(`[RotationContinue] ⚠️ audioOrchestrator ou setVolume non disponible`);
+    }
+
+    // Mémoriser dernière commande
+    this.lastVolumeCommand.volume = volume;
+    this.lastVolumeCommand.timestamp = now;
+  }
+
   /**
    * Fonction d'easing
    * @private
    */
   _easeInOutCubic(t) {
-    return t < 0.5 
-      ? 4 * t * t * t 
+    return t < 0.5
+      ? 4 * t * t * t
       : 1 - Math.pow(-2 * t + 2, 3) / 2;
   }
-  
+
+  /**
+   * 🆕 v3.2 : IDÉE 1 - Calcule la variance des vitesses dans le buffer
+   * Permet d'adapter le lissage : mouvement régulier → peu de lissage, mouvement irrégulier → plus de lissage
+   * @returns {number} Variance en (°/s)²
+   * @private
+   */
+  _calculateVelocityVariance() {
+    if (this.velocityBuffer.length < 3) {
+      return 0;
+    }
+
+    // Calculer la moyenne
+    const mean = this.averageVelocity;
+
+    // Calculer la somme des carrés des écarts
+    let sumSquaredDiff = 0;
+    for (const sample of this.velocityBuffer) {
+      const diff = sample.velocity - mean;
+      sumSquaredDiff += diff * diff;
+    }
+
+    // Variance = moyenne des carrés des écarts
+    return sumSquaredDiff / this.velocityBuffer.length;
+  }
+
+  /**
+   * 🆕 v3.2 : IDÉE 1 - Calcule le facteur de lissage adaptatif basé sur la variance
+   * @returns {number} Facteur de lissage entre baseSmoothingFactor et maxSmoothingFactor
+   * @private
+   */
+  _calculateAdaptiveSmoothingFactor() {
+    if (!this.config.adaptiveSmoothingEnabled) {
+      // Si désactivé, utiliser la logique classique zone confort
+      return this.isInComfortZone
+        ? this.config.comfortZoneSmoothingFactor
+        : this.config.smoothingFactor;
+    }
+
+    // Calculer la variance actuelle
+    this.currentVariance = this._calculateVelocityVariance();
+
+    // Normaliser la variance entre 0 et 1
+    // variance faible (mouvement régulier) → 0
+    // variance élevée (mouvement irrégulier) → 1
+    const normalizedVariance = Math.min(1.0, this.currentVariance / this.config.varianceThreshold);
+
+    // Interpoler entre le lissage minimal et maximal
+    const adaptiveFactor =
+      this.config.baseSmoothingFactor +
+      normalizedVariance * (this.config.maxSmoothingFactor - this.config.baseSmoothingFactor);
+
+    return adaptiveFactor;
+  }
+
+  /**
+   * 🆕 v3.2 : IDÉE 2 - Calcule l'accélération angulaire
+   * Permet de détecter les changements de direction plus tôt
+   * @param {number} currentVelocity - Vitesse angulaire actuelle (°/s)
+   * @param {number} timestamp - Timestamp actuel (ms)
+   * @returns {number} Accélération angulaire (°/s²)
+   * @private
+   */
+  _calculateAngularAcceleration(currentVelocity, timestamp) {
+    if (!this.config.predictiveDetectionEnabled || this.lastVelocityTimestamp === 0) {
+      this.lastVelocityTimestamp = timestamp;
+      return 0;
+    }
+
+    const dt = (timestamp - this.lastVelocityTimestamp) / 1000; // Convertir en secondes
+    if (dt <= 0 || dt > 0.5) { // Ignorer les valeurs aberrantes
+      this.lastVelocityTimestamp = timestamp;
+      return 0;
+    }
+
+    // Accélération = (v_current - v_last) / dt
+    const acceleration = (currentVelocity - this.lastAngularVelocity) / dt;
+
+    // Mettre à jour pour le prochain calcul
+    this.lastVelocityTimestamp = timestamp;
+
+    return acceleration;
+  }
+
   /**
    * Vérifie la progression
    * @private

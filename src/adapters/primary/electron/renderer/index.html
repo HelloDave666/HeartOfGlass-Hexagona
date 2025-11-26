@@ -18,49 +18,49 @@
 
         <!-- Navigation par onglets -->
         <nav class="tab-navigation">
-            <button class="tab-button active" data-tab="mainTab">Principal</button>
-            <button class="tab-button" data-tab="calibrationTab">🎯 Calibration</button>
+            <button class="tab-button active" data-tab="heartOfGlassTab">Heart Of Glass</button>
+            <button class="tab-button" data-tab="mainTab">Principal</button>
+            <button class="tab-button" data-tab="calibrationTab">Calibration</button>
             <button class="tab-button" data-tab="soundTab">Sound Control</button>
             <button class="tab-button" data-tab="settingsTab">Paramètres</button>
         </nav>
 
         <!-- Contenu des onglets -->
         <main class="tab-container">
-            <!-- Onglet Principal -->
-            <div id="mainTab" class="tab-content active">
-                <div class="main-layout">
-                    <!-- Zone des capteurs -->
-                    <section class="sensor-section">
-                        <h2>Capteurs IMU</h2>
-                        <!-- CONTENEUR MANQUANT AJOUTÉ ICI -->
-                        <div id="sensorContainer">
-                            <!-- Le composant SensorDisplay va injecter son contenu ici -->
-                        </div>
-                    </section>
+            <!-- Onglet Heart Of Glass (Espace Narratif) -->
+            <div id="heartOfGlassTab" class="tab-content active">
+                <section class="narrative-section">
+                    <h2>Espace Narratif</h2>
+                    <div id="narrativeSpace" class="narrative-space">
+                        <!-- Rita/Echo apparaîtront ici -->
+                        <div id="mainContent"></div>
+                    </div>
 
-                    <!-- Zone narrative -->
-                    <section class="narrative-section">
-                        <h2>Espace Narratif</h2>
-                        <div id="narrativeSpace" class="narrative-space">
-                            <!-- Rita/Echo apparaîtront ici -->
-                            <div id="mainContent"></div>
-                        </div>
-                        
-                        <!-- Système de dialogue -->
-                        <div class="dialogue-container" style="display: none;">
-                            <div class="dialogue-box">
-                                <div class="character-portrait">
-                                    <img id="character-image" src="" alt="Personnage">
-                                </div>
-                                <div class="dialogue-content-wrapper">
-                                    <h3 id="speaker-name">Rita</h3>
-                                    <p id="dialogue-content"></p>
-                                    <span class="continue-indicator" style="display: none;">▼</span>
-                                </div>
+                    <!-- Système de dialogue -->
+                    <div class="dialogue-container" style="display: none;">
+                        <div class="dialogue-box">
+                            <div class="character-portrait">
+                                <img id="character-image" src="" alt="Personnage">
+                            </div>
+                            <div class="dialogue-content-wrapper">
+                                <h3 id="speaker-name">Rita</h3>
+                                <p id="dialogue-content"></p>
+                                <span class="continue-indicator" style="display: none;">▼</span>
                             </div>
                         </div>
-                    </section>
-                </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Onglet Principal (Capteurs uniquement) -->
+            <div id="mainTab" class="tab-content">
+                <section class="sensor-section">
+                    <h2>Capteurs IMU</h2>
+                    <!-- CONTENEUR MANQUANT AJOUTÉ ICI -->
+                    <div id="sensorContainer">
+                        <!-- Le composant SensorDisplay va injecter son contenu ici -->
+                    </div>
+                </section>
             </div>
 
             <!-- Onglet Calibration -->
@@ -116,16 +116,6 @@
                             </label>
                         </div>
 
-                        <!-- ✨ NOUVEAU : Contrôle IMU -->
-                        <div class="control-group">
-                            <label>
-                                <input type="checkbox" id="imuControl">
-                                🎮 Activer contrôle par capteurs IMU
-                            </label>
-                            <p class="help-text" style="font-size: 0.9em; color: #666; margin-top: 5px;">
-                                Main droite = Vitesse | Main gauche = Volume
-                            </p>
-                        </div>
                     </section>
 
                     <!-- Paramètres audio -->
@@ -175,22 +165,6 @@
                         </div>
                     </section>
 
-                    <!-- Sensibilité des capteurs -->
-                    <section class="sensor-sensitivity">
-                        <h3>Sensibilité des capteurs IMU</h3>
-                        <div class="sensitivity-control">
-                            <label for="sensitivitySlider">Facteur de sensibilité:</label>
-                            <input type="range" id="sensitivitySlider" min="0.1" max="2.0" step="0.1" value="1.0">
-                            <span id="sensitivityValue">1.0</span>
-                        </div>
-                        <p class="help-text" style="font-size: 0.9em; color: #666; margin-top: 10px;">
-                            ⚠️ Pour que les capteurs contrôlent l'audio :<br>
-                            1️⃣ Chargez un fichier audio<br>
-                            2️⃣ Lancez la lecture (▶)<br>
-                            3️⃣ Cochez "Activer contrôle par capteurs IMU"<br>
-                            4️⃣ Bougez les capteurs !
-                        </p>
-                    </section>
                 </div>
             </div>
 

@@ -132,9 +132,13 @@ function updateAngles(position, sensorData) {
 
   // Si un exercice est actif, router les données vers lui SEULEMENT
   if (exerciseController && exerciseController.currentExercise) {
-    // Passer seulement les angles de la main DROITE à l'exercice
+    // 🆕 v3.3 : Passer les données des DEUX capteurs à l'exercice
+    // DROIT → Contrôle vitesse de lecture
+    // GAUCHE → Contrôle volume
     if (position === 'DROIT') {
-      exerciseController.updateAngles(lastSensorAngles.right);
+      exerciseController.updateAngles(lastSensorAngles.right, 'DROIT');
+    } else if (position === 'GAUCHE') {
+      exerciseController.updateAngles(lastSensorAngles.left, 'GAUCHE');
     }
 
     // Mettre à jour l'UI des capteurs quand même (pour voir les angles)
@@ -148,32 +152,6 @@ function updateAngles(position, sensorData) {
   // ║ PRIORITÉ 3 : COMPORTEMENT NORMAL (si rien d'actif)           ║
   // ╚═══════════════════════════════════════════════════════════════╝
   controllers.sensorUIController.updateAngles(position, angles);
-  
-  if (position === 'DROIT') {
-    console.log(`[IMU] DROIT - Y: ${angles.y.toFixed(1)}° | IMU enabled: ${state.isIMUToAudioEnabled()} | Playing: ${state.getAudioState().isPlaying}`);
-  }
-  
-  if (state.isIMUToAudioEnabled() && state.getAudioSystem() && state.getAudioState().isPlaying) {
-    const now = Date.now();
-    const side = position === 'GAUCHE' ? 'left' : 'right';
-    
-    const lastAngle = state.getLastAngles()[side];
-    const deltaTime = (now - lastAngle.timestamp) / 1000;
-    
-    if (deltaTime > 0) {
-      const angularVelocity = (angles.y - lastAngle.y) / deltaTime;
-      
-      if (position === 'DROIT' && Math.abs(angularVelocity) > 1) {
-        console.log(`[IMU→Audio] Vitesse angulaire: ${angularVelocity.toFixed(1)}°/s`);
-      }
-      
-      if (orchestrators.audio) {
-        orchestrators.audio.applyIMUToAudio(position, angles, angularVelocity);
-      }
-    }
-    
-    state.updateLastAngles(side, angles);
-  }
 }
 
 // ========================================
@@ -230,11 +208,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         onWindowChange: (event) => {
           if (orchestrators.audio) {
             orchestrators.audio.setWindowType(event.target.value);
-          }
-        },
-        onIMUToggle: (event) => {
-          if (orchestrators.audio) {
-            orchestrators.audio.toggleIMU(event.target.checked);
           }
         },
         onRecordToggle: async () => {
@@ -382,7 +355,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     exerciseController = new ExerciseController({
       audioOrchestrator: orchestrators.audio,
       state,
-      calibrationOrchestrator: calibrationOrchestrator
+      calibrationOrchestrator: calibrationOrchestrator,
+      audioUIController: controllers.audioUIController
     });
 
     exerciseController.initialize();

@@ -9,10 +9,11 @@
 const path = require('path');
 
 class ExerciseController {
-  constructor({ audioOrchestrator, state, calibrationOrchestrator }) {
+  constructor({ audioOrchestrator, state, calibrationOrchestrator, audioUIController }) {
     this.audioOrchestrator = audioOrchestrator;
     this.state = state;
     this.calibrationOrchestrator = calibrationOrchestrator;
+    this.audioUIController = audioUIController;
     
     // Exercice actif
     this.currentExercise = null;
@@ -80,7 +81,8 @@ class ExerciseController {
       this.currentExercise = new ExerciseClass({
         audioOrchestrator: this.audioOrchestrator,
         state: this.state,
-        calibrationOrchestrator: this.calibrationOrchestrator
+        calibrationOrchestrator: this.calibrationOrchestrator,
+        audioUIController: this.audioUIController
       });
       
       this.currentExerciseName = exerciseName;
@@ -134,12 +136,14 @@ class ExerciseController {
   /**
    * Met à jour les données capteurs depuis les IMU
    * ✅ MODIFIÉ : Accepte maintenant toutes les données du capteur
+   * 🆕 v3.3 : Supporte le paramètre position pour capteur GAUCHE (volume)
    * À appeler depuis app.js quand les données capteurs changent
    * @param {Object} sensorData - { angles: {x,y,z}, gyro: {x,y,z}, accel: {x,y,z} }
+   * @param {string} position - 'DROIT' (vitesse) ou 'GAUCHE' (volume) - optionnel, par défaut 'DROIT'
    */
-  updateAngles(sensorData) {
+  updateAngles(sensorData, position = 'DROIT') {
     if (this.currentExercise && this.currentExercise.update) {
-      this.currentExercise.update(sensorData);
+      this.currentExercise.update(sensorData, position);
     }
   }
   

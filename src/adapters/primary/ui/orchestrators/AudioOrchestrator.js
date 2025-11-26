@@ -239,23 +239,6 @@ class AudioOrchestrator {
   }
 
   /**
-   * Active/désactive le contrôle IMU
-   */
-  toggleIMU(enabled) {
-    this.state.setIMUToAudioEnabled(enabled);
-    
-    this.imuController.setEnabled(enabled, this.state.getAudioSystem());
-    
-    if (enabled) {
-      const now = Date.now();
-      this.state.getLastAngles().left.timestamp = now;
-      this.state.getLastAngles().right.timestamp = now;
-    }
-    
-    console.log('[AudioOrchestrator] IMU control:', enabled ? 'activé' : 'désactivé');
-  }
-
-  /**
    * Bascule l'enregistrement audio
    */
   async toggleRecording() {
@@ -293,30 +276,39 @@ class AudioOrchestrator {
   }
 
   /**
-   * Applique les données IMU à l'audio
-   */
-  applyIMUToAudio(position, angles, angularVelocity) {
-    const audioUI = this.audioUIController.getUIReferences();
-    if (!audioUI.imuSensitivity || !this.state.getAudioSystem()) return;
-    
-    const sensitivity = parseFloat(audioUI.imuSensitivity.value);
-    
-    this.imuController.applyToAudio(position, angles, angularVelocity, this.state.getAudioSystem(), sensitivity);
-  }
-
-  /**
    * Modifie la vitesse de lecture
    * @param {number} rate - Vitesse de lecture (0.25 à 2.0)
    * @param {number} direction - Direction (1 = avant, -1 = arrière)
    */
   setPlaybackRate(rate, direction = 1) {
     if (!this.state.getAudioSystem()) return;
-    
+
     try {
       this.state.getAudioSystem().setPlaybackRate(rate, direction);
       console.log(`[AudioOrchestrator] Playback rate: ${rate.toFixed(2)}x | Direction: ${direction === 1 ? 'AVANT' : 'ARRIÈRE'}`);
     } catch (error) {
       console.error('[AudioOrchestrator] Erreur setPlaybackRate:', error);
+    }
+  }
+
+  /**
+   * 🆕 v3.3 : Modifie le volume
+   * @param {number} volume - Volume (0.0 à 1.0)
+   */
+  setVolume(volume) {
+    if (!this.state.getAudioSystem()) return;
+
+    try {
+      // Clamper le volume entre 0 et 1
+      const clampedVolume = Math.max(0.0, Math.min(1.0, volume));
+
+      // Appliquer le volume au système audio
+      this.state.getAudioSystem().setVolume(clampedVolume);
+
+      // Note: L'état est mis à jour automatiquement par le système audio
+      // Pas besoin d'assigner audioState.volume (propriété read-only)
+    } catch (error) {
+      console.error('[AudioOrchestrator] Erreur setVolume:', error);
     }
   }
 

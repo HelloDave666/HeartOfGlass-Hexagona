@@ -24,7 +24,6 @@ class AudioUIController {
    * @param {Function} config.onGrainSizeChange - Callback changement grain size
    * @param {Function} config.onOverlapChange - Callback changement overlap
    * @param {Function} config.onWindowChange - Callback changement window
-   * @param {Function} config.onIMUToggle - Callback toggle IMU
    * @param {Function} config.onRecordToggle - Callback toggle recording
    */
   constructor(config) {
@@ -37,7 +36,6 @@ class AudioUIController {
     this.onGrainSizeChange = config.onGrainSizeChange || null;
     this.onOverlapChange = config.onOverlapChange || null;
     this.onWindowChange = config.onWindowChange || null;
-    this.onIMUToggle = config.onIMUToggle || null;
     this.onRecordToggle = config.onRecordToggle || null;
     
     // Références DOM - Fichier et contrôles
@@ -59,11 +57,7 @@ class AudioUIController {
     this.grainSizeInput = null;
     this.overlapInput = null;
     this.windowSelect = null;
-    
-    // Références DOM - IMU
-    this.imuToggle = null;
-    this.imuSensitivity = null;
-    
+
     // Références DOM - Enregistrement
     this.recordButton = null;
     
@@ -96,10 +90,7 @@ class AudioUIController {
     this.grainSizeInput = document.getElementById('grainSizeInput');
     this.overlapInput = document.getElementById('overlapInput');
     this.windowSelect = document.getElementById('windowTypeSelect');
-    
-    this.imuToggle = document.getElementById('imuControl');
-    this.imuSensitivity = document.getElementById('sensitivitySlider');
-    
+
     this.recordButton = document.getElementById('recordButton');
     
     // Vérification des éléments essentiels
@@ -161,14 +152,7 @@ class AudioUIController {
       this.handlers.set(this.windowSelect, { event: 'change', handler });
       this.windowSelect.addEventListener('change', handler);
     }
-    
-    // IMU Toggle
-    if (this.imuToggle && this.onIMUToggle) {
-      const handler = (event) => this.onIMUToggle(event);
-      this.handlers.set(this.imuToggle, { event: 'change', handler });
-      this.imuToggle.addEventListener('change', handler);
-    }
-    
+
     // Record button
     if (this.recordButton && this.onRecordToggle) {
       const handler = () => this.onRecordToggle();
@@ -419,8 +403,6 @@ class AudioUIController {
       grainSizeInput: this.grainSizeInput,
       overlapInput: this.overlapInput,
       windowSelect: this.windowSelect,
-      imuToggle: this.imuToggle,
-      imuSensitivity: this.imuSensitivity,
       recordButton: this.recordButton
     };
   }
@@ -485,10 +467,8 @@ class AudioUIController {
     this.grainSizeInput = null;
     this.overlapInput = null;
     this.windowSelect = null;
-    this.imuToggle = null;
-    this.imuSensitivity = null;
     this.recordButton = null;
-    
+
     // Nettoyage des callbacks
     this.onFileSelect = null;
     this.onPlayPauseToggle = null;
@@ -496,7 +476,6 @@ class AudioUIController {
     this.onGrainSizeChange = null;
     this.onOverlapChange = null;
     this.onWindowChange = null;
-    this.onIMUToggle = null;
     this.onRecordToggle = null;
     
     console.log('[AudioUIController] Nettoyé');

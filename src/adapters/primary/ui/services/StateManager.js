@@ -20,8 +20,7 @@ class StateManager {
     
     this.timelineUpdateInterval = null;
     this.currentAudioFile = null;
-    this.imuToAudioEnabled = false;
-    
+
     this.audioRecorder = null;
     this.isRecording = false;
     
@@ -46,8 +45,6 @@ class StateManager {
       overlapSlider: null,
       overlapValue: null,
       windowSelect: null,
-      imuToggle: null,
-      imuSensitivity: null,
       recordButton: null,
       timelineProgress: null,
       timelineHandle: null,
@@ -146,14 +143,6 @@ class StateManager {
     this.currentAudioFile = file;
   }
 
-  isIMUToAudioEnabled() {
-    return this.imuToAudioEnabled;
-  }
-
-  setIMUToAudioEnabled(enabled) {
-    this.imuToAudioEnabled = enabled;
-  }
-
   getAudioRecorder() {
     return this.audioRecorder;
   }
@@ -209,7 +198,6 @@ class StateManager {
     this.currentAudioFile = null;
     this.audioRecorder = null;
     this.isRecording = false;
-    this.imuToAudioEnabled = false;
     this.smoothedPlaybackRate = 1.0;
     
     this.lastAngles = {
