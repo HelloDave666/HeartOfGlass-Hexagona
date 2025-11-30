@@ -435,10 +435,12 @@ class AudioUIController {
       this.speedDisplay.textContent = 'Vitesse: 1.0x →';
       displayEl.style.color = '#2ecc71';
     }
-    
-    if (this.volumeDisplay) {
-      this.volumeDisplay.textContent = 'Volume: 80%';
-    }
+
+    // 🆕 v3.4.1 : Ne pas forcer 80%, laisser le contrôle de volume de l'exercice gérer
+    // (commenté pour éviter conflit avec RotationContinue volume control)
+    // if (this.volumeDisplay) {
+    //   this.volumeDisplay.textContent = 'Volume: 80%';
+    // }
   }
 
   /**

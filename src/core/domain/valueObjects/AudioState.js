@@ -3,12 +3,12 @@ class AudioState {
     this.isInitialized = Boolean(data.isInitialized || false);
     this.isPlaying = Boolean(data.isPlaying || false);
     this.hasBuffer = Boolean(data.hasBuffer || false);
-    this.currentPosition = this.validatePosition(data.currentPosition || 0);
-    this.duration = this.validateDuration(data.duration || 0);
-    this.playbackRate = this.validatePlaybackRate(data.playbackRate || 1.0);
-    this.playbackDirection = this.validateDirection(data.playbackDirection || 1);
-    this.volume = this.validateVolume(data.volume || 0.8);
-    this.activeGrains = this.validateActiveGrains(data.activeGrains || 0);
+    this.currentPosition = this.validatePosition(data.currentPosition ?? 0);
+    this.duration = this.validateDuration(data.duration ?? 0);
+    this.playbackRate = this.validatePlaybackRate(data.playbackRate ?? 1.0);
+    this.playbackDirection = this.validateDirection(data.playbackDirection ?? 1);
+    this.volume = this.validateVolume(data.volume ?? 0.5);  // 🆕 v3.4.3 : 50% par défaut (et ?? au lieu de ||)
+    this.activeGrains = this.validateActiveGrains(data.activeGrains ?? 0);
     Object.freeze(this);
   }
 
@@ -43,7 +43,7 @@ class AudioState {
   validateVolume(value) {
     const vol = Number(value);
     if (isNaN(vol) || vol < 0 || vol > 1.0) {
-      return 0.8;
+      return 0.5;  // 🆕 v3.4.3 : 50% par défaut au lieu de 80%
     }
     return vol;
   }

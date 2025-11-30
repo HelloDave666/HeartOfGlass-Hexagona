@@ -16,7 +16,7 @@ class GranularSynthesisAdapter extends IAudioService {
     this.currentPosition = 0;
     this.playbackRate = 1.0;
     this.playbackDirection = 1;
-    this.volume = 0.8;
+    this.volume = 0.5;  // 🆕 v3.4.3 : 50% par défaut au lieu de 80%
     this.grainParams = {
       grainSize: 60,
       overlap: 50,

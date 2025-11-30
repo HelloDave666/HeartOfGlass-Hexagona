@@ -11,7 +11,7 @@ class AudioProcessingChain {
 
   buildChain() {
     this.masterGain = this.audioContext.createGain();
-    this.masterGain.gain.value = 0.8;
+    this.masterGain.gain.value = 0.5;  // 🆕 v3.4.3 : 50% par défaut au lieu de 80%
     this.lowpassFilter = this.audioContext.createBiquadFilter();
     this.lowpassFilter.type = 'lowpass';
     this.lowpassFilter.frequency.value = 20000;

@@ -57,7 +57,7 @@ class RotationContinueExercise {
       repositionThreshold: 10,
       repositionMinDuration: 200,
       repositionMaxDuration: 2500,
-      freezePlaybackDuringReposition: true,
+      freezePlaybackDuringReposition: false,  // 🆕 v3.4 : Désactivé pour éviter sauts à 1.0x pendant rotations lentes
 
       // 🚀 v3.2 : Détection direction ULTRA-RÉACTIVE
       directionWindowSize: 8,             // 🚀 8 échantillons (~240ms à 30Hz) vs 15
@@ -98,9 +98,13 @@ class RotationContinueExercise {
       volumeLeftZoneStart: 270,           // Butée gauche (270° ou -90°) = 0% volume (rotation antihoraire)
       volumeDeadZoneStart: 90,            // Début zone morte (90° à 270°)
       volumeDeadZoneEnd: 270,             // Fin zone morte
-      volumeSmoothingFactor: 0.45,        // Lissage pour transitions fluides
+      volumeSmoothingFactor: 0.75,        // 🆕 v3.4.1 : Lissage augmenté (0.75 vs 0.45) → affichage stable
       volumeInitialValue: 0.5,            // Volume initial au démarrage (50%)
-      leftSensorInverted: true            // Capteur gauche inversé (main opposée)
+      leftSensorInverted: true,           // Capteur gauche inversé (main opposée)
+      volumeGyroDeadZone: 3,              // 🆕 v3.4.1 : Ignorer gyro < 3°/s (micro-mouvements au repos)
+      volumeRestThreshold: 5,             // 🆕 v3.4.1 : Seuil repos capteur (< 5°/s)
+      volumeRestDuration: 1000,           // 🆕 v3.4.1 : Durée repos avant reset angle (1s)
+      volumeUIUpdateThreshold: 0.02       // 🆕 v3.4.1 : Mise à jour UI si changement > 2%
     };
     
     // Paramètres audio optimisés
@@ -161,6 +165,7 @@ class RotationContinueExercise {
       timestamp: 0
     };
     this.lastKnownVolume = 0.5;          // Dernier volume connu (pour zone morte)
+    this.volumeRestStartTime = 0;        // 🆕 v3.4.1 : Début période de repos (pour reset auto)
 
     // Mémorisation dernière commande audio
     this.lastAudioCommand = {
@@ -278,12 +283,12 @@ class RotationContinueExercise {
       timestamp: 0
     };
 
-    // 🆕 v3.3 : Réinitialiser contrôle volume
+    // 🆕 v3.4.2 : Réinitialiser contrôle volume (position centrale = 50%)
     this.leftSensorAngle = 0;
-    this.currentVolume = 1.0;
-    this.smoothedVolume = 1.0;
+    this.currentVolume = this.config.volumeInitialValue;  // 0.5 = 50%
+    this.smoothedVolume = this.config.volumeInitialValue;
     this.lastVolumeCommand = {
-      volume: 1.0,
+      volume: this.config.volumeInitialValue,
       timestamp: 0
     };
 
@@ -808,9 +813,11 @@ class RotationContinueExercise {
       const transitionRange = transitionMaxEnd - comfortMax;
       const progress = (this.averageVelocity - comfortMax) / transitionRange;
       const easedProgress = this._easeInOutCubic(progress);
-      
+
+      // 🆕 v3.4 : Continuer depuis 1.5x (fin zone confort) au lieu de repartir de 1.0x
+      const comfortZoneMaxRate = 1.5;  // Playback rate max de la zone confort
       const maxRate = Math.min(2.0, transitionMaxEnd / this.config.targetSpeed);
-      targetPlaybackRate = 1.0 + (maxRate - 1.0) * easedProgress;
+      targetPlaybackRate = comfortZoneMaxRate + (maxRate - comfortZoneMaxRate) * easedProgress;
       targetPlaybackRate = Math.min(2.0, targetPlaybackRate);
       
     } else if (this.averageVelocity >= comfortMin && this.averageVelocity <= comfortMax) {
@@ -931,7 +938,6 @@ class RotationContinueExercise {
 
       // Sécurité : ignorer les dt aberrants
       if (dt > 0.5 || dt <= 0) {
-        console.warn(`[RotationContinue] 🔊 dt aberrant: ${dt}s, ignoré`);
         dt = 0;
       }
     }
@@ -945,60 +951,48 @@ class RotationContinueExercise {
       angularVelocity = -angularVelocity;
     }
 
+    // 🆕 v3.4.1 : Zone morte gyroscope (ignorer micro-mouvements < 3°/s)
+    const absVelocity = Math.abs(angularVelocity);
+    if (absVelocity < this.config.volumeGyroDeadZone) {
+      angularVelocity = 0;
+    }
+
     // Calculer changement d'angle : delta = vitesse × temps
     const deltaAngle = angularVelocity * dt;
 
     // Ajouter au cumul (angle qui ne boucle PAS comme Euler)
     this.cumulativeVolumeAngle += deltaAngle;
 
-    // Debug
-    console.log(`[RotationContinue] 🔊 Gyro Y: ${gyro.y.toFixed(1)}°/s | dt: ${(dt * 1000).toFixed(0)}ms | Δ: ${deltaAngle.toFixed(1)}° | Cumul: ${this.cumulativeVolumeAngle.toFixed(1)}°`);
+    // 🆕 v3.4.3 : BUTÉES STRICTES - Clamper l'angle entre -90° et +90° (potentiomètre physique)
+    // Cela empêche la dérive de l'angle au-delà des limites
+    const maxAngle = this.config.volumeRightZoneEnd; // 90°
+    this.cumulativeVolumeAngle = Math.max(-maxAngle, Math.min(maxAngle, this.cumulativeVolumeAngle));
 
     // ========================================
     // 2. MAPPER ANGLE CUMULATIF → VOLUME
     // ========================================
 
     let targetVolume;
-    let zone = 'MORTE';
 
     // 📍 Zone active DROITE (0° à 90°) : 50% → 100% volume (rotation horaire)
-    if (this.cumulativeVolumeAngle >= 0 && this.cumulativeVolumeAngle <= this.config.volumeRightZoneEnd) {
-      zone = 'DROITE';
+    if (this.cumulativeVolumeAngle >= 0 && this.cumulativeVolumeAngle <= maxAngle) {
       // Interpolation linéaire : 0° = 50%, 90° = 100%
-      const progress = this.cumulativeVolumeAngle / this.config.volumeRightZoneEnd; // 0.0 à 1.0
+      const progress = this.cumulativeVolumeAngle / maxAngle; // 0.0 à 1.0
       targetVolume = 0.5 + (progress * 0.5); // 0.5 à 1.0
       this.lastKnownVolume = targetVolume; // Mémoriser
-      console.log(`[RotationContinue] 🔊 Zone DROITE (${this.cumulativeVolumeAngle.toFixed(1)}°) → ${(targetVolume * 100).toFixed(0)}%`);
     }
 
     // 📍 Zone active GAUCHE (-90° à 0°) : 0% → 50% volume (rotation antihoraire)
-    else if (this.cumulativeVolumeAngle < 0 && this.cumulativeVolumeAngle >= -this.config.volumeRightZoneEnd) {
-      zone = 'GAUCHE';
+    else if (this.cumulativeVolumeAngle < 0 && this.cumulativeVolumeAngle >= -maxAngle) {
       // Interpolation linéaire : -90° = 0%, 0° = 50%
-      const progress = (this.cumulativeVolumeAngle + this.config.volumeRightZoneEnd) / this.config.volumeRightZoneEnd; // 0.0 à 1.0
+      const progress = (this.cumulativeVolumeAngle + maxAngle) / maxAngle; // 0.0 à 1.0
       targetVolume = progress * 0.5; // 0.0 à 0.5
       this.lastKnownVolume = targetVolume; // Mémoriser
-      console.log(`[RotationContinue] 🔊 Zone GAUCHE (${this.cumulativeVolumeAngle.toFixed(1)}°) → ${(targetVolume * 100).toFixed(0)}%`);
     }
 
-    // 📍 Zone MORTE DROITE (> 90°) : garde dernier volume (butée physique)
-    else if (this.cumulativeVolumeAngle > this.config.volumeRightZoneEnd) {
-      zone = 'MORTE_DROITE';
-      targetVolume = this.lastKnownVolume; // Normalement 100%
-      console.log(`[RotationContinue] 🔊 Zone MORTE DROITE (${this.cumulativeVolumeAngle.toFixed(1)}°) → Butée: ${(targetVolume * 100).toFixed(0)}%`);
-    }
-
-    // 📍 Zone MORTE GAUCHE (< -90°) : garde dernier volume (butée physique)
-    else if (this.cumulativeVolumeAngle < -this.config.volumeRightZoneEnd) {
-      zone = 'MORTE_GAUCHE';
-      targetVolume = this.lastKnownVolume; // Normalement 0%
-      console.log(`[RotationContinue] 🔊 Zone MORTE GAUCHE (${this.cumulativeVolumeAngle.toFixed(1)}°) → Butée: ${(targetVolume * 100).toFixed(0)}%`);
-    }
-
-    // Sécurité : fallback
+    // 📍 Zones MORTES (théoriquement inaccessibles avec butées, mais sécurité)
     else {
       targetVolume = this.lastKnownVolume;
-      console.log(`[RotationContinue] 🔊 Zone INDÉFINIE (${this.cumulativeVolumeAngle.toFixed(1)}°) → Volume maintenu: ${(targetVolume * 100).toFixed(0)}%`);
     }
 
     // ========================================
@@ -1008,22 +1002,32 @@ class RotationContinueExercise {
     // Clamper le volume entre 0 et 1 (sécurité)
     targetVolume = Math.max(0.0, Math.min(1.0, targetVolume));
 
-    // Appliquer lissage pour stabilité et transitions fluides
+    // 🆕 v3.4.1 : Lissage augmenté pour affichage UI stable
     const smoothingFactor = this.config.volumeSmoothingFactor;
     this.smoothedVolume =
       this.smoothedVolume * (1 - smoothingFactor) +
       targetVolume * smoothingFactor;
 
+    // 🆕 v3.4.3 : SNAP TO EDGE - Forcer les limites exactes quand aux butées
+    // Si l'angle est à ±90° (butées), forcer 0% ou 100% exactement
+    const edgeThreshold = 2; // Seuil en degrés pour considérer qu'on est à la butée
+    if (Math.abs(this.cumulativeVolumeAngle - maxAngle) < edgeThreshold) {
+      // Butée droite → 100%
+      this.smoothedVolume = 1.0;
+    } else if (Math.abs(this.cumulativeVolumeAngle + maxAngle) < edgeThreshold) {
+      // Butée gauche → 0%
+      this.smoothedVolume = 0.0;
+    }
+
     // Arrondir pour éviter micro-variations
     this.smoothedVolume = Math.round(this.smoothedVolume * 100) / 100;
-    console.log(`[RotationContinue] 🔊 Volume final (lissé): ${(this.smoothedVolume * 100).toFixed(0)}%`);
 
-    // Envoyer commande volume (avec déduplication)
+    // Envoyer commande volume (avec déduplication améliorée)
     this._sendVolumeCommand(this.smoothedVolume, now);
   }
 
   /**
-   * 🆕 v3.3 : Envoie commande de volume avec déduplication
+   * 🆕 v3.4.2 : Envoie commande de volume avec déduplication
    * @param {number} volume - Volume (0.0 à 1.0)
    * @param {number} now - Timestamp actuel
    * @private
@@ -1034,23 +1038,13 @@ class RotationContinueExercise {
 
     // Déduplication : ignorer si changement < 2% et délai < 100ms
     if (volumeDiff < 0.02 && timeSinceLastCommand < 100) {
-      console.log(`[RotationContinue] 🔊 Volume - DÉDUPLIQUÉ (diff: ${(volumeDiff * 100).toFixed(1)}%, délai: ${timeSinceLastCommand}ms)`);
       return;
     }
 
-    // Appliquer le volume à l'audioOrchestrator
+    // 🆕 v3.4.2 : Appliquer le volume via audioOrchestrator
+    // Cela met à jour le state ET l'UI automatiquement
     if (this.audioOrchestrator && this.audioOrchestrator.setVolume) {
-      console.log(`[RotationContinue] 🔊 Volume - ENVOYÉ: ${(volume * 100).toFixed(0)}%`);
       this.audioOrchestrator.setVolume(volume);
-
-      // 🆕 v3.4 : Mise à jour affichage UI en temps réel
-      if (this.audioUIController && this.audioUIController.updateVolumeDisplay) {
-        // Créer un objet audioState temporaire pour l'affichage
-        const tempAudioState = { volume: volume };
-        this.audioUIController.updateVolumeDisplay(tempAudioState);
-      }
-    } else {
-      console.warn(`[RotationContinue] ⚠️ audioOrchestrator ou setVolume non disponible`);
     }
 
     // Mémoriser dernière commande

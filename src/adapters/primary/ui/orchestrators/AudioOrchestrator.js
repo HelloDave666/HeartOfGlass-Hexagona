@@ -305,8 +305,12 @@ class AudioOrchestrator {
       // Appliquer le volume au système audio
       this.state.getAudioSystem().setVolume(clampedVolume);
 
-      // Note: L'état est mis à jour automatiquement par le système audio
-      // Pas besoin d'assigner audioState.volume (propriété read-only)
+      // 🆕 v3.4.2 : Mettre à jour le state pour que l'UI affiche la bonne valeur
+      // (le système audio ne met PAS à jour le state automatiquement)
+      this.state.setAudioState(this.state.getAudioState().with({ volume: clampedVolume }));
+
+      // Mettre à jour l'UI
+      this._updateUI();
     } catch (error) {
       console.error('[AudioOrchestrator] Erreur setVolume:', error);
     }
