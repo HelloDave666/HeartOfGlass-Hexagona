@@ -1,5 +1,11 @@
 /**
- * RotationContinueExercise.js - VERSION 3.4
+ * RotationContinueExercise.js - VERSION 3.6.0
+ *
+ * 🆕 v3.6.0 : SIMPLIFICATION RADICALE - Suppression zone de confort
+ * - Mapping linéaire universel : vitesse angulaire → playback rate proportionnel
+ * - Pas de traitement spécial selon les zones
+ * - Rotation progressive naturelle dans les deux sens
+ * - Garde ce qui fonctionne : réactivité, détection direction horaire/antihoraire
  *
  * 🆕 v3.4 : CONTRÔLE DE VOLUME POTENTIOMÈTRE
  * - Capteur GAUCHE contrôle le volume comme un potentiomètre physique
@@ -36,18 +42,19 @@ class RotationContinueExercise {
     
     // Configuration de l'exercice
     this.config = {
-      targetSpeed: 360,           // 1 tour par seconde
-      comfortZone: 240,           // 🚀 v3.3 : Zone élargie ±240°/s = [120-600°/s] (vs ±180) → plus facile à trouver
-      transitionZone: 180,
+      targetSpeed: 360,           // 1 tour par seconde (référence pour 1.0x)
 
       duration: 300000,           // 5 minutes
       checkInterval: 100,
       smoothingFactor: 0.65,      // 🚀 v3.3 : Lissage encore réduit (0.65 vs 0.70) → ultra-réactif
 
       // Paramètres fenêtre glissante
-      samplingWindow: 4000,
-      hysteresisMargin: 30,       // 🚀 v3.3 : Réduit de 40 à 30 → transitions plus fluides
+      samplingWindow: 4000,       // Fenêtre glissante (4s)
       minSamplesForDecision: 5,   // 🚀 v3.3 : Réduit de 6 à 5 → réaction instantanée
+
+      // Limites playback rate
+      minPlaybackRate: 0.25,      // Vitesse minimale (0.25x = 90°/s)
+      maxPlaybackRate: 2.0,       // Vitesse maximale (2.0x = 720°/s)
 
       // Validation dt robuste
       minValidDt: 0.01,
@@ -62,20 +69,22 @@ class RotationContinueExercise {
       // 🚀 v3.2 : Détection direction ULTRA-RÉACTIVE
       directionWindowSize: 8,             // 🚀 8 échantillons (~240ms à 30Hz) vs 15
       directionChangeThreshold: 0.65,     // 🚀 65% des deltas (vs 70%) → plus sensible
-      directionStabilityTime: 200,        // 🚀 200ms (vs 500ms) → détection 2.5x plus rapide
+      directionStabilityTime: 100,        // 🚀 v3.5 : 100ms (vs 200ms) → détection 2x plus rapide pour 0.30-0.50x
 
-      // 🚀 v3.2 : Anti-oscillation très réduit
-      directionChangeLockTime: 300,       // 🚀 300ms (vs 800ms) → changements rapides possibles
+      // 🆕 v3.5.5 : SOLUTION 3 - Buffer de confirmation consensus
+      directionConsensusConfirmationFrames: 3,  // Nombre de frames consécutives pour confirmer changement (90-150ms à 30Hz)
+      directionConsensusConfirmationEnabled: false,  // 🔴 DÉSACTIVÉ - Trop de lag
+
+      // 🚀 v3.5 : Anti-oscillation ULTRA-RÉDUIT pour changements rapides à vitesse moyenne
+      directionChangeLockTime: 100,       // 🚀 v3.5 : 100ms (vs 300ms) → changements 3x plus rapides
+      directionZeroCrossingReset: true,   // 🚀 v3.5 : Réinitialiser lock si passage par zéro détecté
+      directionZeroCrossingThreshold: 10, // Seuil vitesse pour considérer "passage par zéro" (°/s)
 
       // 🆕 Transition douce lors changement de direction (anti-artefacts audio)
       directionTransitionDuration: 250,    // Durée transition 250ms pour éviter les sautes
       directionTransitionSpeedFactor: 0.4, // Réduire à 40% de la vitesse pendant transition
 
       // 🚀 v3.3 : Lissage adaptatif dynamique ultra-réactif
-      comfortZoneLockEnabled: false,      // Ne plus verrouiller à 1.0x
-      comfortZoneSmoothingFactor: 0.60,   // 🚀 v3.3 : Lissage encore réduit (0.60 vs 0.65) → zone confort ultra-réactive
-
-      // 🚀 v3.3 : IDÉE 1 - Lissage adaptatif affiné
       adaptiveSmoothingEnabled: true,     // Activer lissage adaptatif
       baseSmoothingFactor: 0.55,          // 🚀 v3.3 : Lissage minimal réduit (0.55 vs 0.60) → mouvement régulier TRÈS réactif
       maxSmoothingFactor: 0.80,           // 🚀 v3.3 : Lissage maximal réduit (0.80 vs 0.85) → mouvement irrégulier plus fluide
@@ -104,7 +113,33 @@ class RotationContinueExercise {
       volumeGyroDeadZone: 3,              // 🆕 v3.4.1 : Ignorer gyro < 3°/s (micro-mouvements au repos)
       volumeRestThreshold: 5,             // 🆕 v3.4.1 : Seuil repos capteur (< 5°/s)
       volumeRestDuration: 1000,           // 🆕 v3.4.1 : Durée repos avant reset angle (1s)
-      volumeUIUpdateThreshold: 0.02       // 🆕 v3.4.1 : Mise à jour UI si changement > 2%
+      volumeUIUpdateThreshold: 0.02,      // 🆕 v3.4.1 : Mise à jour UI si changement > 2%
+
+      // 🚀 v3.5 : AMÉLIORATION #1 - Dead zone gyro DYNAMIQUE (capteur droit - vitesse)
+      gyroDeadZoneDynamic: true,          // Activer dead zone dynamique
+      gyroDeadZoneRest: 3.0,              // Dead zone au repos (°/s) - large pour ignorer bruit
+      gyroDeadZoneMoving: 0.5,            // Dead zone en mouvement (°/s) - étroite pour micro-mouvements
+      gyroDeadZoneTransitionStart: 10,    // Début transition (°/s) - considéré "au repos" en dessous
+      gyroDeadZoneTransitionEnd: 30,      // Fin transition (°/s) - considéré "en mouvement" au-dessus
+      gyroRecentVelocityWindow: 10,       // Nombre d'échantillons pour vitesse moyenne récente
+
+      // 🚀 v3.5 : AMÉLIORATION #2 - Seuil détection direction RÉDUIT
+      directionDetectionMinVelocity: 1.5, // 🆕 Seuil minimal pour détecter direction (1.5°/s vs 5°/s)
+                                          // Permet détection lors de micro-mouvements lents
+
+      // 🚀 v3.5 : AMÉLIORATION #4 - Ratio séparation ADAPTATIF selon vitesse
+      directionSeparationRatioAdaptive: true,  // Activer ratio adaptatif
+      directionSeparationRatioLow: 1.5,        // Ratio permissif à basse vitesse (< 50°/s)
+      directionSeparationRatioMid: 1.8,        // Ratio moyen à vitesse moyenne (50-200°/s) - 🎯 pour 0.30-0.50x
+      directionSeparationRatioHigh: 2.5,       // Ratio strict à haute vitesse (> 200°/s)
+      directionSeparationVelocityLow: 50,      // Seuil vitesse basse (°/s)
+      directionSeparationVelocityHigh: 200,    // Seuil vitesse haute (°/s)
+
+      // 🚀 v3.5 : AMÉLIORATION #6 - Méthode HYBRIDE détection direction
+      directionHybridMethod: true,             // Activer méthode hybride
+      directionDirectSignThresholdLow: 180,    // Seuil bas : descendre → méthode directe
+      directionDirectSignThresholdHigh: 9999   // 🆕 v3.5.2 : Désactivé (9999) → Méthode DIRECTE partout
+                                               // (évite conflits entre méthodes qui causent snap à 1.00x)
     };
     
     // Paramètres audio optimisés
@@ -144,6 +179,9 @@ class RotationContinueExercise {
     this.directionChangeCandidate = null;
     this.directionCandidateStartTime = 0;
 
+    // 🆕 v3.5.5 : SOLUTION 3 - Buffer de confirmation consensus
+    this.directionConsensusHistory = [];  // Historique des consensus (pour détecter stabilité temporelle)
+
     // 🆕 Transition douce lors changement direction
     this.isInDirectionTransition = false;
     this.directionTransitionStartTime = 0;
@@ -167,6 +205,13 @@ class RotationContinueExercise {
     this.lastKnownVolume = 0.5;          // Dernier volume connu (pour zone morte)
     this.volumeRestStartTime = 0;        // 🆕 v3.4.1 : Début période de repos (pour reset auto)
 
+    // 🚀 v3.5 : AMÉLIORATION #1 - Dead zone gyro dynamique
+    this.recentVelocityBuffer = [];      // Buffer des vitesses récentes pour calcul dead zone dynamique
+    this.currentDeadZone = this.config.gyroDeadZoneRest;  // Dead zone actuelle (commence au repos)
+
+    // 🚀 v3.5 : AMÉLIORATION #6 - Méthode hybride avec hystérésis
+    this.usingDirectSignMethod = true;   // Commence avec méthode directe (vitesses basses)
+
     // Mémorisation dernière commande audio
     this.lastAudioCommand = {
       rate: 1.0,
@@ -180,10 +225,19 @@ class RotationContinueExercise {
     // Compteurs debug
     this.updateCount = 0;
     this.audioCommandCount = 0;
+
+    // 🆕 v3.5.4 : Diagnostic snap 1.00x
+    this.snapDiagnostics = {
+      enabled: true,
+      lastRate: 1.0,
+      snapCount: 0,
+      snapThreshold: 0.15  // Considérer un snap si changement > 0.15
+    };
     
-    console.log('[RotationContinueExercise] VERSION 3.5 - Calibration UI Globale');
-    console.log('[RotationContinueExercise] 🎯 Cible: 1 tour/sec (360°/s) | Zone confort: 180-540°/s');
-    console.log('[RotationContinueExercise] 📐 Détection: 70% sur 15 échantillons (~450ms)');
+    console.log('[RotationContinueExercise] VERSION 3.6.0 - SIMPLIFICATION RADICALE');
+    console.log('[RotationContinueExercise] 🎯 Mapping linéaire universel : vitesse → playback rate proportionnel');
+    console.log('[RotationContinueExercise] 📐 Référence: 360°/s = 1.0x | Limites: 0.25x-2.0x');
+    console.log('[RotationContinueExercise] ⚙️ Pas de zone de confort - Rotation progressive naturelle');
     console.log('[RotationContinueExercise] 🔧 Utilise CalibrationOrchestrator global');
   }
   
@@ -261,6 +315,9 @@ class RotationContinueExercise {
     this.lastDirectionChangeTime = Date.now();
     this.directionChangeCandidate = null;
     this.directionCandidateStartTime = 0;
+
+    // 🆕 v3.5.5 : Réinitialiser buffer de confirmation consensus
+    this.directionConsensusHistory = [];
 
     // 🆕 Réinitialiser transition douce
     this.isInDirectionTransition = false;
@@ -416,8 +473,19 @@ class RotationContinueExercise {
 
     // ✅ NOUVEAU : Utiliser directement le gyroscope (vitesse angulaire en °/s)
     // Plus besoin de calculer de deltas ni de gérer les discontinuités !
-    const gyroY = gyro.y;  // SIGNED: >0 = horaire, <0 = antihoraire
-    const angularVelocity = Math.abs(gyroY);
+    let gyroY = gyro.y;  // SIGNED: >0 = horaire, <0 = antihoraire
+    let angularVelocity = Math.abs(gyroY);
+
+    // 🚀 v3.5 : AMÉLIORATION #1 - Dead zone gyro DYNAMIQUE
+    // Calcule dead zone adaptative (large au repos, étroite en mouvement)
+    const currentDeadZone = this._updateDynamicDeadZone(angularVelocity);
+
+    // Appliquer la dead zone dynamique
+    if (angularVelocity < currentDeadZone) {
+      gyroY = 0;
+      angularVelocity = 0;
+    }
+
     this.lastAngularVelocity = angularVelocity;
 
     // Utiliser le modèle de calibration global pour détecter la direction
@@ -435,8 +503,8 @@ class RotationContinueExercise {
     if (this.updateCount % 50 === 0) {
       const dirArrow = this.currentDirection === 1 ? '↻' : '↺';
       const gyroDirection = gyroY > 0 ? '↻' : '↺';
-      const comfortStatus = this.isInComfortZone ? '🎯' : '⚠️';
-      console.log(`[DEBUG #${this.updateCount}] GY:${gyroY.toFixed(1)}°/s (${gyroDirection}) | Det:${dirArrow} | V:${angularVelocity.toFixed(0)}°/s | ${comfortStatus}`);
+      const playbackSpeed = (angularVelocity / this.config.targetSpeed).toFixed(2);
+      console.log(`[DEBUG #${this.updateCount}] GY:${gyroY.toFixed(1)}°/s (${gyroDirection}) | Det:${dirArrow} | V:${angularVelocity.toFixed(0)}°/s (${playbackSpeed}x) | DZ:${currentDeadZone.toFixed(2)}°/s`);
     }
 
     // Détection repositionnement main
@@ -467,8 +535,8 @@ class RotationContinueExercise {
       velocity: Math.round(angularVelocity),
       averageVelocity: Math.round(this.averageVelocity),
       targetSpeed: this.config.targetSpeed,
-      isInRange: this._isInTargetRange(this.averageVelocity),
-      isInComfortZone: this.isInComfortZone,
+      isInRange: true,  // 🆕 v3.6.0 : Plus de notion de zone - toujours valide
+      isInComfortZone: false,  // 🆕 v3.6.0 : Zone de confort supprimée
       isRepositioning: this.isRepositioning,
       playbackRate: this.smoothedPlaybackRate,
       direction: this.currentDirection
@@ -499,12 +567,22 @@ class RotationContinueExercise {
       return;
     }
 
-    // Ne PAS détecter changement si vélocité trop faible
-    if (this.lastAngularVelocity < 5) {
-      // Capteur probablement immobile - garder direction actuelle
+    // 🚀 v3.5 : AMÉLIORATION #2 - Seuil réduit pour micro-mouvements
+    // Ne PAS détecter changement si vélocité trop faible (évite bruit au repos)
+    if (this.lastAngularVelocity < this.config.directionDetectionMinVelocity) {
+      // Capteur probablement immobile ou mouvement trop lent - garder direction actuelle
       this.directionChangeCandidate = null;
       this.directionCandidateStartTime = 0;
       return;
+    }
+
+    // 🚀 v3.5 : AMÉLIORATION #5 - Détection passage par ZÉRO
+    // Si vitesse très faible (< 10°/s), probable changement de direction en cours
+    // → Réinitialiser le lock pour permettre détection immédiate
+    if (this.config.directionZeroCrossingReset &&
+        this.lastAngularVelocity < this.config.directionZeroCrossingThreshold) {
+      // Passage par zéro détecté → Autoriser nouvelle détection
+      this.lastDirectionChangeTime = 0;
     }
 
     // Zone morte anti-oscillation
@@ -519,6 +597,31 @@ class RotationContinueExercise {
 
     // Utiliser le modèle calibré pour déterminer la direction
     const candidateDirection = this._getDirectionFromModel();
+
+    // 🆕 v3.5.5 : SOLUTION 3 - Buffer de confirmation consensus
+    // Ajouter le consensus actuel à l'historique
+    if (this.config.directionConsensusConfirmationEnabled) {
+      this.directionConsensusHistory.push({
+        direction: candidateDirection,
+        timestamp: now
+      });
+
+      // Garder seulement les N dernières frames
+      const maxHistory = this.config.directionConsensusConfirmationFrames;
+      if (this.directionConsensusHistory.length > maxHistory) {
+        this.directionConsensusHistory.shift();
+      }
+
+      // Vérifier si le consensus est STABLE sur les N dernières frames
+      const isConsensusStable = this._checkConsensusStability(candidateDirection);
+
+      // Si le consensus n'est pas stable, annuler toute candidature
+      if (!isConsensusStable) {
+        this.directionChangeCandidate = null;
+        this.directionCandidateStartTime = 0;
+        return;
+      }
+    }
 
     // Modèle pas encore calibré ou pas de consensus
     if (candidateDirection === null) {
@@ -585,9 +688,38 @@ class RotationContinueExercise {
         : `Gyro=${avgGyro.toFixed(1)}°/s | ${candidateStabilityDuration}ms`;
 
       console.log(`[RotationContinue] 🔄 CHANGEMENT: ${oldArrow} → ${newArrow} (${logDetails}) → Transition activée`);
+
+      // 🆕 v3.5.4 : Log diagnostic pour corrélation avec snap
+      console.log(`   └─ Playback: ${this.smoothedPlaybackRate.toFixed(2)}x | Vitesse: ${this.averageVelocity.toFixed(1)}°/s`);
     }
   }
   
+  /**
+   * 🆕 v3.5.5 : SOLUTION 3 - Vérifie la stabilité du consensus sur N frames
+   * @param {number|null} candidateDirection - Direction candidate à vérifier
+   * @returns {boolean} True si le consensus est stable (toutes les frames récentes ont la même direction)
+   * @private
+   */
+  _checkConsensusStability(candidateDirection) {
+    if (!this.config.directionConsensusConfirmationEnabled) {
+      return true; // Si désactivé, toujours considérer stable
+    }
+
+    // Pas assez d'historique encore
+    if (this.directionConsensusHistory.length < this.config.directionConsensusConfirmationFrames) {
+      return false;
+    }
+
+    // Vérifier que TOUTES les frames récentes ont la même direction
+    for (const entry of this.directionConsensusHistory) {
+      if (entry.direction !== candidateDirection) {
+        return false; // Une frame différente → consensus instable
+      }
+    }
+
+    return true; // Toutes les frames concordent → consensus stable
+  }
+
   /**
    * Calcule le ratio de valeurs gyro positives dans le buffer
    * ✅ MODIFIÉ : Plus de gestion des discontinuités avec le gyroscope
@@ -635,7 +767,46 @@ class RotationContinueExercise {
     }
 
     const avgGyro = gyroValues.reduce((sum, d) => sum + d, 0) / gyroValues.length;
+    const absAvgGyro = Math.abs(avgGyro);
 
+    // 🚀 v3.5 : AMÉLIORATION #6 - Méthode HYBRIDE avec HYSTÉRÉSIS
+    // Décider quelle méthode utiliser avec zone tampon (évite oscillations à la frontière)
+    if (this.config.directionHybridMethod) {
+      // Hystérésis : Changer de méthode uniquement si on dépasse clairement les seuils
+      if (this.usingDirectSignMethod && absAvgGyro >= this.config.directionDirectSignThresholdHigh) {
+        // On monte au-dessus de 220°/s → Passer à méthode calibrée
+        this.usingDirectSignMethod = false;
+      } else if (!this.usingDirectSignMethod && absAvgGyro <= this.config.directionDirectSignThresholdLow) {
+        // On descend en-dessous de 180°/s → Passer à méthode directe
+        this.usingDirectSignMethod = true;
+      }
+      // Entre 180-220°/s → Garder la méthode actuelle (zone d'hystérésis)
+    }
+
+    // Appliquer la méthode choisie
+    if (this.config.directionHybridMethod && this.usingDirectSignMethod) {
+      // Méthode DIRECTE : Signe du gyroscope
+      // Positif → Horaire (direction -1), Négatif → Antihoraire (direction 1)
+      // Note: Le mapping dépend de l'orientation physique du capteur (défini lors de la calibration)
+
+      // Calculer le ratio de valeurs positives dans le buffer
+      const positiveCount = gyroValues.filter(v => v > 0).length;
+      const positiveRatio = positiveCount / gyroValues.length;
+
+      // 🔴 REVENU À 85% - Plus stable que 70%
+      if (positiveRatio > 0.85) {
+        // Majorité forte positive → Horaire
+        return -1;
+      } else if (positiveRatio < 0.15) {
+        // Majorité forte négative → Antihoraire
+        return 1;
+      } else {
+        // Pas de consensus clair (entre 15% et 85%)
+        return null;
+      }
+    }
+
+    // Méthode CLASSIQUE : Plages calibrées (pour haute vitesse > 200°/s)
     // Calculer distance aux deux plages (noter le mapping: clockwise = horaire, counterclockwise = antihoraire)
     const distHoraire = this._distanceToRange(avgGyro, calibrationModel.clockwise);
     const distAntihoraire = this._distanceToRange(avgGyro, calibrationModel.counterclockwise);
@@ -645,8 +816,27 @@ class RotationContinueExercise {
     const minDist = Math.min(distHoraire, distAntihoraire);
     const maxDist = Math.max(distHoraire, distAntihoraire);
 
-    // Besoin d'une séparation claire (ratio > 2)
-    if (maxDist / Math.max(0.1, minDist) < 2) {
+    // 🚀 v3.5 : AMÉLIORATION #4 - Ratio de séparation ADAPTATIF
+    // Ratio plus permissif aux vitesses moyennes (0.30-0.50x) pour meilleure détection
+    let requiredRatio = 2.0; // Valeur par défaut (mode classique)
+
+    if (this.config.directionSeparationRatioAdaptive) {
+      const absAvgGyro = Math.abs(avgGyro);
+
+      if (absAvgGyro < this.config.directionSeparationVelocityLow) {
+        // Basse vitesse (< 50°/s) → Ratio permissif 1.5
+        requiredRatio = this.config.directionSeparationRatioLow;
+      } else if (absAvgGyro < this.config.directionSeparationVelocityHigh) {
+        // Moyenne vitesse (50-200°/s) → Ratio moyen 1.8 🎯 ZONE CRITIQUE 0.30-0.50x
+        requiredRatio = this.config.directionSeparationRatioMid;
+      } else {
+        // Haute vitesse (> 200°/s) → Ratio strict 2.5
+        requiredRatio = this.config.directionSeparationRatioHigh;
+      }
+    }
+
+    // Besoin d'une séparation claire selon le ratio adaptatif
+    if (maxDist / Math.max(0.1, minDist) < requiredRatio) {
       return null; // Pas de consensus
     }
 
@@ -718,16 +908,18 @@ class RotationContinueExercise {
   
   /**
    * Ajoute une mesure au buffer
+   * 🆕 v3.6.0 : Fenêtre glissante simple et universelle
    * @private
    */
   _addToVelocityBuffer(sample) {
     const now = Date.now();
-    
+
     this.velocityBuffer.push(sample);
-    
+
+    // Fenêtre glissante fixe (pas de fenêtre adaptative)
     const windowStart = now - this.config.samplingWindow;
     this.velocityBuffer = this.velocityBuffer.filter(s => s.timestamp >= windowStart);
-    
+
     if (this.velocityBuffer.length > 0) {
       const sum = this.velocityBuffer.reduce((acc, s) => acc + s.velocity, 0);
       this.averageVelocity = sum / this.velocityBuffer.length;
@@ -744,92 +936,41 @@ class RotationContinueExercise {
   }
   
   /**
-   * Vérifie si la vitesse est dans la plage cible
-   * @private
-   */
-  _isInTargetRange(velocity) {
-    const min = this.config.targetSpeed - this.config.comfortZone;
-    const max = this.config.targetSpeed + this.config.comfortZone;
-    return velocity >= min && velocity <= max;
-  }
-  
-  /**
-   * ✅ v3.1 : Contrôle audio avec ZONE CONFORT DYNAMIQUE
+   * 🆕 v3.6.0 : Contrôle audio SIMPLIFIÉ - Mapping linéaire universel
    * @private
    */
   _controlAudio() {
     if (!this.audioOrchestrator) {
       return;
     }
-    
+
     // MODE REPOSITIONNEMENT
     if (this.isRepositioning && this.config.freezePlaybackDuringReposition) {
       this._sendAudioCommand(this.frozenPlaybackRate, this.frozenDirection, 'REPOSITION');
       return;
     }
-    
+
     // Attendre d'avoir assez d'échantillons
     if (this.velocityBuffer.length < this.config.minSamplesForDecision) {
       return;
     }
-    
-    const comfortMin = this.config.targetSpeed - this.config.comfortZone;  // 180°/s
-    const comfortMax = this.config.targetSpeed + this.config.comfortZone;  // 540°/s
-    const hysteresisMin = comfortMin - this.config.hysteresisMargin;       // 140°/s
-    const hysteresisMax = comfortMax + this.config.hysteresisMargin;       // 580°/s
-    
-    // Mise à jour état zone confort (avec hystérésis)
-    if (this.isInComfortZone) {
-      if (this.averageVelocity < hysteresisMin || this.averageVelocity > hysteresisMax) {
-        this.isInComfortZone = false;
-        console.log('[RotationContinue] 🔓 Sortie zone confort');
-      }
-    } else {
-      if (this.averageVelocity >= comfortMin && this.averageVelocity <= comfortMax) {
-        this.isInComfortZone = true;
-        console.log('[RotationContinue] 🎯 Entrée zone confort (' + this.averageVelocity.toFixed(1) + '°/s)');
-      }
-    }
-    
-    // ✅ v3.1 : ZONE CONFORT DYNAMIQUE
-    // Au lieu de bloquer à 1.0x, on calcule toujours le rate mais avec lissage TRÈS fort
-    const transitionMinStart = comfortMin - this.config.transitionZone;    // 0°/s
-    const transitionMaxEnd = comfortMax + this.config.transitionZone;      // 720°/s
-    
-    let targetPlaybackRate;
-    
-    if (this.averageVelocity >= transitionMinStart && this.averageVelocity < comfortMin) {
-      // Zone transition basse
-      const transitionRange = comfortMin - transitionMinStart;
-      const progress = (this.averageVelocity - transitionMinStart) / transitionRange;
-      const easedProgress = this._easeInOutCubic(progress);
-      
-      const minRate = Math.max(0.25, transitionMinStart / this.config.targetSpeed);
-      targetPlaybackRate = minRate + (1.0 - minRate) * easedProgress;
-      targetPlaybackRate = Math.max(0.25, targetPlaybackRate);
-      
-    } else if (this.averageVelocity > comfortMax && this.averageVelocity <= transitionMaxEnd) {
-      // Zone transition haute
-      const transitionRange = transitionMaxEnd - comfortMax;
-      const progress = (this.averageVelocity - comfortMax) / transitionRange;
-      const easedProgress = this._easeInOutCubic(progress);
 
-      // 🆕 v3.4 : Continuer depuis 1.5x (fin zone confort) au lieu de repartir de 1.0x
-      const comfortZoneMaxRate = 1.5;  // Playback rate max de la zone confort
-      const maxRate = Math.min(2.0, transitionMaxEnd / this.config.targetSpeed);
-      targetPlaybackRate = comfortZoneMaxRate + (maxRate - comfortZoneMaxRate) * easedProgress;
-      targetPlaybackRate = Math.min(2.0, targetPlaybackRate);
-      
-    } else if (this.averageVelocity >= comfortMin && this.averageVelocity <= comfortMax) {
-      // ✅ v3.1 : DANS LA ZONE CONFORT - mapping proportionnel avec lissage fort
-      // Calcul proportionnel : 180°/s = 0.5x, 360°/s = 1.0x, 540°/s = 1.5x
-      const ratio = this.averageVelocity / this.config.targetSpeed;
-      targetPlaybackRate = Math.max(0.5, Math.min(1.5, ratio));
-      
-    } else {
-      // Zones extrêmes
-      const ratio = this.averageVelocity / this.config.targetSpeed;
-      targetPlaybackRate = Math.max(0.25, Math.min(2.0, ratio));
+    // 🆕 v3.6.0 : MAPPING LINÉAIRE UNIVERSEL
+    // Pas de zones spéciales - juste un ratio proportionnel
+    // 360°/s (1 tour/sec) = 1.0x playback rate (référence)
+    // Plus rapide → playback plus rapide, plus lent → playback plus lent
+    const ratio = this.averageVelocity / this.config.targetSpeed;
+    let targetPlaybackRate = ratio;
+
+    // Clamper entre les limites configurées
+    targetPlaybackRate = Math.max(
+      this.config.minPlaybackRate,
+      Math.min(this.config.maxPlaybackRate, targetPlaybackRate)
+    );
+
+    // Log périodique pour debug
+    if (this.updateCount % 50 === 0) {
+      console.log(`[Playback] Vitesse:${this.averageVelocity.toFixed(0)}°/s → Rate:${targetPlaybackRate.toFixed(2)}x (ratio:${ratio.toFixed(2)})`);
     }
 
     // 🆕 TRANSITION DOUCE lors changement de direction pour éviter artefacts audio
@@ -863,11 +1004,29 @@ class RotationContinueExercise {
       this.smoothedPlaybackRate * (1 - smoothingFactor) +
       targetPlaybackRate * smoothingFactor;
 
+    // Arrondir à 2 décimales
     this.smoothedPlaybackRate = Math.round(this.smoothedPlaybackRate * 100) / 100;
-    
+
+    // 🆕 v3.5.4 : DIAGNOSTIC SNAP (gardé pour surveillance)
+    // Détecter les sauts brusques
+    if (this.snapDiagnostics.enabled) {
+      const rateDelta = Math.abs(this.smoothedPlaybackRate - this.snapDiagnostics.lastRate);
+
+      // Détecter snap (changement brusque)
+      if (rateDelta > this.snapDiagnostics.snapThreshold) {
+        this.snapDiagnostics.snapCount++;
+        console.warn(`🚨 [SNAP #${this.snapDiagnostics.snapCount}] Détecté: ${this.snapDiagnostics.lastRate.toFixed(2)}x → ${this.smoothedPlaybackRate.toFixed(2)}x`);
+        console.warn(`   ├─ Vitesse: ${this.averageVelocity.toFixed(1)}°/s | Target: ${targetPlaybackRate.toFixed(2)}x`);
+        console.warn(`   ├─ Repositionnement: ${this.isRepositioning ? 'OUI' : 'NON'}`);
+        console.warn(`   ├─ Direction: ${this.currentDirection === 1 ? '↻ Horaire' : '↺ Antihoraire'} | Transition: ${this.isInDirectionTransition ? 'OUI' : 'NON'}`);
+        console.warn(`   └─ Smoothing: ${smoothingFactor.toFixed(2)} | Variance: ${this.currentVariance.toFixed(1)}`);
+      }
+
+      this.snapDiagnostics.lastRate = this.smoothedPlaybackRate;
+    }
+
     // Envoyer commande
-    const context = this.isInComfortZone ? 'COMFORT_ZONE' : 'NORMAL';
-    this._sendAudioCommand(this.smoothedPlaybackRate, this.currentDirection, context);
+    this._sendAudioCommand(this.smoothedPlaybackRate, this.currentDirection, 'PROGRESSIVE');
   }
   
   /**
@@ -897,8 +1056,8 @@ class RotationContinueExercise {
 
     // 🆕 v3.4 : Mise à jour affichage UI en temps réel
     if (this.audioUIController && this.audioUIController.updateSpeedDisplay) {
-      // Déterminer si on est en zone confort (neutre)
-      const isNeutral = this.isInComfortZone;
+      // 🆕 v3.6.0 : Plus de zone neutre - affichage toujours actif
+      const isNeutral = false;
       this.audioUIController.updateSpeedDisplay(rate, direction, isNeutral);
     }
 
@@ -1053,16 +1212,6 @@ class RotationContinueExercise {
   }
 
   /**
-   * Fonction d'easing
-   * @private
-   */
-  _easeInOutCubic(t) {
-    return t < 0.5
-      ? 4 * t * t * t
-      : 1 - Math.pow(-2 * t + 2, 3) / 2;
-  }
-
-  /**
    * 🆕 v3.2 : IDÉE 1 - Calcule la variance des vitesses dans le buffer
    * Permet d'adapter le lissage : mouvement régulier → peu de lissage, mouvement irrégulier → plus de lissage
    * @returns {number} Variance en (°/s)²
@@ -1088,16 +1237,62 @@ class RotationContinueExercise {
   }
 
   /**
+   * 🚀 v3.5 : AMÉLIORATION #1 - Calcule et applique la dead zone gyro DYNAMIQUE
+   * Dead zone large au repos (3°/s) → ignore bruit
+   * Dead zone étroite en mouvement (0.5°/s) → capture micro-mouvements
+   * @param {number} angularVelocity - Vitesse angulaire absolue (°/s)
+   * @returns {number} Dead zone actuelle à appliquer (°/s)
+   * @private
+   */
+  _updateDynamicDeadZone(angularVelocity) {
+    if (!this.config.gyroDeadZoneDynamic) {
+      return this.config.gyroDeadZoneRest; // Mode classique
+    }
+
+    // Ajouter vitesse actuelle au buffer récent
+    this.recentVelocityBuffer.push(angularVelocity);
+
+    // Garder seulement les N derniers échantillons
+    if (this.recentVelocityBuffer.length > this.config.gyroRecentVelocityWindow) {
+      this.recentVelocityBuffer.shift();
+    }
+
+    // Calculer vitesse moyenne récente
+    if (this.recentVelocityBuffer.length === 0) {
+      return this.config.gyroDeadZoneRest;
+    }
+
+    const avgRecentVelocity = this.recentVelocityBuffer.reduce((sum, v) => sum + v, 0) / this.recentVelocityBuffer.length;
+
+    // Interpolation linéaire entre dead zone repos et mouvement
+    const transitionStart = this.config.gyroDeadZoneTransitionStart;
+    const transitionEnd = this.config.gyroDeadZoneTransitionEnd;
+
+    if (avgRecentVelocity <= transitionStart) {
+      // Au repos → dead zone large
+      this.currentDeadZone = this.config.gyroDeadZoneRest;
+    } else if (avgRecentVelocity >= transitionEnd) {
+      // En mouvement → dead zone étroite
+      this.currentDeadZone = this.config.gyroDeadZoneMoving;
+    } else {
+      // Transition progressive
+      const progress = (avgRecentVelocity - transitionStart) / (transitionEnd - transitionStart);
+      this.currentDeadZone = this.config.gyroDeadZoneRest +
+        (this.config.gyroDeadZoneMoving - this.config.gyroDeadZoneRest) * progress;
+    }
+
+    return this.currentDeadZone;
+  }
+
+  /**
    * 🆕 v3.2 : IDÉE 1 - Calcule le facteur de lissage adaptatif basé sur la variance
    * @returns {number} Facteur de lissage entre baseSmoothingFactor et maxSmoothingFactor
    * @private
    */
   _calculateAdaptiveSmoothingFactor() {
     if (!this.config.adaptiveSmoothingEnabled) {
-      // Si désactivé, utiliser la logique classique zone confort
-      return this.isInComfortZone
-        ? this.config.comfortZoneSmoothingFactor
-        : this.config.smoothingFactor;
+      // Si désactivé, utiliser le smoothing factor standard
+      return this.config.smoothingFactor;
     }
 
     // Calculer la variance actuelle
@@ -1215,12 +1410,10 @@ class RotationContinueExercise {
     const avgVelocity = velocities.reduce((a, b) => a + b, 0) / velocities.length;
     const maxVelocity = Math.max(...velocities);
     const minVelocity = Math.min(...velocities);
-    
-    const samplesInRange = this.rotationHistory.filter(h => 
-      this._isInTargetRange(h.velocity)
-    ).length;
-    
-    const consistency = Math.round((samplesInRange / this.rotationHistory.length) * 100);
+
+    // 🆕 v3.6.0 : Plus de notion de zone - tous les échantillons sont valides
+    const samplesInRange = this.rotationHistory.length;
+    const consistency = 100;  // Toujours 100% sans zone de confort
     
     const forwardRotations = this.rotationHistory.filter(h => h.direction === 1).length;
     const backwardRotations = this.rotationHistory.filter(h => h.direction === -1).length;
