@@ -1,4 +1,4 @@
-﻿// src/adapters/primary/electron/main/index.js
+// src/adapters/primary/electron/main/index.js
 // Version refactorisée avec Container DI
 
 const { app, BrowserWindow, ipcMain } = require('electron');
@@ -43,21 +43,21 @@ function createWindow() {
 // Initialiser le Container et les handlers IPC
 async function initializeContainer() {
   console.log('[Main] Initialisation du Container DI...');
-  
+
   try {
     // Importer le Container
     const { getInstance } = require('../../../../infrastructure/di/Container');
     container = getInstance();
-    
+
     // Initialiser les services essentiels (pas le Bluetooth encore)
     container.initializeEssentials();
-    
+
     // Récupérer le SensorHandler (qui contient déjà tous les IPC handlers)
     sensorHandler = container.resolve('sensorHandler');
-    
+
     console.log('[Main] ✓ Container initialisé');
     console.log('[Main] ✓ IPC handlers configurés (sensor:scan, sensor:stop-scan, sensor:get-status, sensor:update-config)');
-    
+
     return true;
   } catch (error) {
     console.error('[Main] ✗ Erreur initialisation Container:', error);
@@ -68,15 +68,15 @@ async function initializeContainer() {
 // Initialisation de l'application
 app.whenReady().then(async () => {
   console.log('[Main] Application prête');
-  
+
   // Initialiser le Container AVANT de créer la fenêtre
   const containerOk = await initializeContainer();
-  
+
   if (!containerOk) {
     console.error('[Main] Container échoué - L\'application démarre quand même');
     console.error('[Main] app.js utilisera le mode direct (ancien système)');
   }
-  
+
   createWindow();
 });
 
@@ -108,11 +108,11 @@ ipcMain.on('log', (event, { level, message }) => {
 // Gestion de la fermeture propre
 app.on('before-quit', async () => {
   console.log('[Main] Fermeture de l\'application...');
-  
+
   if (mainWindow) {
     mainWindow.webContents.send('app-closing');
   }
-  
+
   // Cleanup du Container si initialisé
   if (container) {
     try {
