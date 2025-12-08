@@ -1,0 +1,28 @@
+{
+  "id": "heart-of-glass-story",
+  "title": "Heart of Glass",
+  "version": "1.0.0",
+  "chapters": [
+    {
+      "id": "00-intro-tutorial",
+      "title": "Prologue - Découverte",
+      "unlockCondition": "none",
+      "file": "chapters/00-intro-tutorial.json"
+    },
+    {
+      "id": "01-chapter-1",
+      "title": "Chapitre 1 - Les Premiers Pas",
+      "unlockCondition": {
+        "type": "exercise_completed",
+        "exerciseId": "rotation-continue",
+        "requiredScore": null
+      },
+      "file": "chapters/01-chapter-1.json"
+    }
+  ],
+  "metadata": {
+    "author": "Heart of Glass Team",
+    "description": "Une histoire interactive mêlant narration et exercices sensoriels",
+    "genre": "Interactive Fiction"
+  }
+}

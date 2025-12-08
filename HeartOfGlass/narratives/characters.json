@@ -1,0 +1,44 @@
+{
+  "characters": [
+    {
+      "id": "guide",
+      "name": "Le Guide",
+      "portraits": {
+        "neutral": {
+          "type": "static",
+          "image": "media/portraits/guide/neutral.png"
+        },
+        "welcoming": {
+          "type": "static",
+          "image": "media/portraits/guide/welcoming.png"
+        },
+        "explaining": {
+          "type": "static",
+          "image": "media/portraits/guide/explaining.png"
+        },
+        "encouraging": {
+          "type": "static",
+          "image": "media/portraits/guide/encouraging.png"
+        }
+      },
+      "talkSound": "media/audio/sfx/guide-talk.mp3",
+      "metadata": {
+        "description": "Un guide bienveillant qui accompagne le joueur dans son parcours"
+      }
+    },
+    {
+      "id": "narrator",
+      "name": "Narrateur",
+      "portraits": {
+        "neutral": {
+          "type": "static",
+          "image": "media/portraits/narrator/neutral.png"
+        }
+      },
+      "talkSound": null,
+      "metadata": {
+        "description": "Voix narrative pour les passages descriptifs"
+      }
+    }
+  ]
+}

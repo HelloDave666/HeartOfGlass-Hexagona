@@ -1,0 +1,405 @@
+/**
+ * ExerciseTemplate.js
+ *
+ * 📝 TEMPLATE pour créer un nouvel exercice
+ *
+ * Ce fichier est un exemple commenté montrant comment créer un exercice
+ * suivant l'architecture hexagonale avec BaseExerciseAdapter.
+ *
+ * ─────────────────────────────────────────────────────────────
+ * 🎯 INSTRUCTIONS:
+ * ─────────────────────────────────────────────────────────────
+ *
+ * 1. Copier ce fichier et renommer (ex: MonNouvelExercice.js)
+ * 2. Remplacer "MonExercice" par votre nom d'exercice
+ * 3. Créer config dans configs/
+ * 4. Créer services nécessaires dans core/domain/services/
+ * 5. Créer use case dans core/useCases/
+ * 6. Implémenter les hooks
+ * 7. Tester !
+ *
+ * ─────────────────────────────────────────────────────────────
+ * 📚 Ressources:
+ * ─────────────────────────────────────────────────────────────
+ * - ARCHITECTURE-MODEL.md (guide complet)
+ * - RotationContinueExercise.js (exemple réel)
+ * - BaseExerciseAdapter.js (classe de base)
+ *
+ * Architecture : Adapters/Primary/UI/Exercises
+ */
+
+// ═══════════════════════════════════════════════════════════
+// IMPORTS
+// ═══════════════════════════════════════════════════════════
+
+const BaseExerciseAdapter = require('./BaseExerciseAdapter');
+
+// 📦 Configuration
+const { exerciseConfig, audioSettings } = require('./configs/MonExerciceConfig');
+
+// 🔧 Services Domaine (créez-les dans core/domain/services/)
+const ExerciseStateManager = require('../../../../core/domain/services/ExerciseStateManager');
+const BufferManager = require('../../../../core/domain/services/BufferManager');
+const SensorAnalyzer = require('../../../../core/domain/services/SensorAnalyzer');
+// ... autres services selon vos besoins
+
+// 🎯 Use Case (créez-le dans core/useCases/)
+const MonExerciceUseCase = require('../../../../core/useCases/MonExerciceUseCase');
+
+// ═══════════════════════════════════════════════════════════
+// CLASSE EXERCICE
+// ═══════════════════════════════════════════════════════════
+
+class MonExercice extends BaseExerciseAdapter {
+  /**
+   * Constructeur
+   *
+   * ⚠️ IMPORTANT: Appeler super() avec tous les paramètres
+   */
+  constructor({ audioOrchestrator, state, calibrationOrchestrator, audioUIController }) {
+    super({
+      name: 'Mon Exercice',  // 📝 Nom de l'exercice
+      duration: exerciseConfig.duration,  // ⏱️ Durée en ms
+      audioOrchestrator,
+      state,
+      calibrationOrchestrator,
+      audioUIController,
+      config: exerciseConfig,
+      audioSettings: audioSettings
+    });
+
+    // 📊 Diagnostics (optionnel)
+    this.snapDiagnostics = {
+      enabled: true,
+      lastRate: 1.0,
+      snapCount: 0,
+      snapThreshold: 0.15
+    };
+
+    console.log('[MonExercice] Initialisé avec succès');
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // 🎯 HOOKS OBLIGATOIRES - À IMPLÉMENTER
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * 1️⃣ Configure les services domaine
+   *
+   * Créez et instanciez tous vos services ici.
+   * Chaque service a UNE responsabilité.
+   *
+   * Exemples de services :
+   * - BufferManager : gestion buffers
+   * - SensorAnalyzer : calculs capteurs
+   * - DirectionDetector : détection direction
+   * - PlaybackCalculator : calculs audio
+   * - VolumeController : contrôle volume
+   * - ExerciseMetrics : statistiques
+   */
+  setupServices() {
+    console.log('[MonExercice] Configuration services...');
+
+    // Exemple: Service d'analyse capteurs
+    this.sensorAnalyzer = new SensorAnalyzer(this.config);
+
+    // Exemple: Service de gestion buffer
+    this.bufferManager = new BufferManager(this.sensorAnalyzer, this.config);
+
+    // TODO: Ajoutez vos services spécifiques
+    // this.monService = new MonService(this.config);
+  }
+
+  /**
+   * 2️⃣ Configure le StateManager
+   *
+   * Le StateManager gère l'état de l'exercice de manière centralisée.
+   * Il élimine la duplication entre constructor et start().
+   */
+  setupStateManager() {
+    console.log('[MonExercice] Configuration StateManager...');
+
+    this.stateManager = new ExerciseStateManager(this.config);
+  }
+
+  /**
+   * 3️⃣ Configure le Use Case
+   *
+   * Le Use Case orchestre les services pour accomplir
+   * les cas d'utilisation métier.
+   *
+   * Un Use Case = Une fonctionnalité métier
+   */
+  setupUseCase() {
+    console.log('[MonExercice] Configuration Use Case...');
+
+    this.monUseCase = new MonExerciceUseCase({
+      sensorAnalyzer: this.sensorAnalyzer,
+      bufferManager: this.bufferManager,
+      // ... autres services
+      config: this.config,
+      calibrationOrchestrator: this.calibrationOrchestrator
+    });
+  }
+
+  /**
+   * 4️⃣ Initialise l'état de l'exercice
+   *
+   * Déclarez toutes les propriétés d'état puis
+   * utilisez StateManager pour les initialiser.
+   *
+   * ⚠️ IMPORTANT: Déclarez AVANT d'appeler applyInitialState()
+   */
+  initializeState() {
+    console.log('[MonExercice] Initialisation état...');
+
+    // 📋 Déclaration des propriétés d'état (initialisées à null)
+    this.lastAngles = null;
+    this.lastTimestamp = null;
+    this.velocityBuffer = null;
+    this.averageVelocity = null;
+    // ... autres propriétés selon vos besoins
+
+    // ✨ Initialisation via StateManager
+    this.stateManager.applyInitialState(this);
+  }
+
+  /**
+   * 5️⃣ Traite la mise à jour du capteur
+   *
+   * C'est ici que vous déléguez au Use Case.
+   * L'Adapter ne fait QUE du routing et de l'I/O.
+   *
+   * Pattern recommandé :
+   * 1. Extraire données
+   * 2. Appeler Use Case
+   * 3. Appliquer résultats
+   * 4. I/O (audio, UI)
+   */
+  handleUpdate(sensorData, position, now) {
+    // ──────────────────────────────────────────────────
+    // 1. EXTRACTION DONNÉES
+    // ──────────────────────────────────────────────────
+    const angles = sensorData.angles || sensorData;
+    const gyro = sensorData.gyro || { x: 0, y: 0, z: 0 };
+
+    // ──────────────────────────────────────────────────
+    // 2. GESTION CAPTEUR GAUCHE (exemple volume)
+    // ──────────────────────────────────────────────────
+    if (position === 'GAUCHE') {
+      // TODO: Traiter capteur gauche si nécessaire
+      return;
+    }
+
+    // ──────────────────────────────────────────────────
+    // 3. PREMIER ÉCHANTILLON
+    // ──────────────────────────────────────────────────
+    if (this.lastTimestamp === null) {
+      this.lastTimestamp = now;
+      this.lastAngles = { ...angles };
+      return;
+    }
+
+    // ──────────────────────────────────────────────────
+    // 4. VALIDATION DT
+    // ──────────────────────────────────────────────────
+    const dt = (now - this.lastTimestamp) / 1000;
+
+    if (dt < 0.001 || dt > 1.0) {
+      console.warn(`[MonExercice] dt aberrant: ${(dt * 1000).toFixed(0)}ms`);
+      this.lastTimestamp = now;
+      return;
+    }
+
+    // ──────────────────────────────────────────────────
+    // 5. DÉLÉGATION AU USE CASE
+    // ──────────────────────────────────────────────────
+    const result = this.monUseCase.execute({
+      angles,
+      gyro,
+      now,
+      dt,
+      state: this._getState()
+    });
+
+    // Skip si demandé
+    if (result.shouldSkip) {
+      return;
+    }
+
+    // ──────────────────────────────────────────────────
+    // 6. APPLICATION RÉSULTATS
+    // ──────────────────────────────────────────────────
+    this._applyStateUpdates(result.stateUpdates);
+
+    // ──────────────────────────────────────────────────
+    // 7. I/O - COMMANDES AUDIO
+    // ──────────────────────────────────────────────────
+    if (result.audioCommand) {
+      this._sendAudioCommand(result.audioCommand);
+    }
+
+    // ──────────────────────────────────────────────────
+    // 8. I/O - NOTIFICATION UI
+    // ──────────────────────────────────────────────────
+    this._notifyUI('EXERCISE_UPDATE', {
+      velocity: result.velocity,
+      // ... autres données UI
+    });
+
+    // ──────────────────────────────────────────────────
+    // 9. MISE À JOUR LAST
+    // ──────────────────────────────────────────────────
+    this.lastAngles = { ...angles };
+    this.lastTimestamp = now;
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // 🎨 HOOKS OPTIONNELS - Personnalisation
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Validation custom avant démarrage
+   * @override
+   */
+  validateBeforeStart() {
+    // Appeler validation de base
+    if (!super.validateBeforeStart()) {
+      return false;
+    }
+
+    // TODO: Ajoutez vos validations custom
+    // Exemple: vérifier config spécifique
+    if (!this.config.monParametreImportant) {
+      console.error('[MonExercice] Configuration manquante');
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Logs custom au démarrage
+   * @override
+   */
+  logStart() {
+    super.logStart();
+
+    // TODO: Logs additionnels
+    console.log(`[MonExercice] Configuration: ${JSON.stringify(this.config.monParam)}`);
+  }
+
+  /**
+   * Cleanup custom à l'arrêt
+   * @override
+   */
+  cleanupOnStop() {
+    // TODO: Cleanup spécifique
+    // Exemple: sauvegarder données, libérer ressources
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // 📊 MÉTHODES OBLIGATOIRES
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Obtient les statistiques de l'exercice
+   * @required
+   */
+  getStats() {
+    // Déléguer au service de métriques si disponible
+    if (this.exerciseMetrics) {
+      return this.exerciseMetrics.calculateStats(
+        this.rotationHistory,
+        this.startTime,
+        this.updateCount
+      );
+    }
+
+    // Sinon, stats basiques
+    return {
+      name: this.name,
+      duration: (Date.now() - this.startTime) / 1000,
+      updateCount: this.updateCount,
+      // ... autres stats
+    };
+  }
+
+  /**
+   * Obtient l'état actuel pour le Use Case
+   * @override
+   */
+  _getState() {
+    return {
+      velocityBuffer: this.velocityBuffer,
+      averageVelocity: this.averageVelocity,
+      lastAngles: this.lastAngles,
+      // ... toutes les propriétés d'état nécessaires
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // 🔊 I/O - MÉTHODES PRIVÉES
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Envoie commande audio
+   * @private
+   */
+  _sendAudioCommand(command) {
+    if (!this.audioOrchestrator) {
+      return;
+    }
+
+    const { rate, direction, context } = command;
+
+    // TODO: Déduplication si nécessaire
+    // TODO: Logs diagnostiques
+
+    // Envoyer commande
+    this.audioOrchestrator.setPlaybackRate(rate);
+    this.audioOrchestrator.setDirection(direction);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// EXPORT
+// ═══════════════════════════════════════════════════════════
+
+module.exports = MonExercice;
+
+// ═══════════════════════════════════════════════════════════
+// 📋 CHECKLIST IMPLÉMENTATION
+// ═══════════════════════════════════════════════════════════
+//
+// Configuration:
+// [ ] Créer configs/MonExerciceConfig.js
+// [ ] Définir exerciseConfig et audioSettings
+//
+// Services Domaine:
+// [ ] Identifier responsabilités (voir ARCHITECTURE-MODEL.md)
+// [ ] Créer services dans core/domain/services/
+// [ ] Tests unitaires services
+//
+// Use Case:
+// [ ] Créer use case dans core/useCases/
+// [ ] Implémenter orchestration
+// [ ] Tests use case
+//
+// Adapter:
+// [ ] Implémenter hooks obligatoires
+// [ ] Implémenter handleUpdate()
+// [ ] Implémenter getStats()
+// [ ] Tests adapter
+//
+// Tests:
+// [ ] Tests unitaires ✅
+// [ ] Tests intégration ✅
+// [ ] Tests physiques capteurs ✅
+//
+// Documentation:
+// [ ] Commenter code
+// [ ] Documenter APIs
+// [ ] README
+//
+// ═══════════════════════════════════════════════════════════

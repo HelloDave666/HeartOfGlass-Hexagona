@@ -1,0 +1,420 @@
+/**
+ * BaseExerciseAdapter.js
+ *
+ * Classe abstraite de base pour tous les exercices suivant l'architecture hexagonale
+ *
+ * Fournit :
+ * - Template method pattern pour lifecycle
+ * - Méthodes communes I/O
+ * - Gestion état via StateManager
+ * - Hooks pour personnalisation
+ *
+ * Usage :
+ * ```
+ * class MonExercice extends BaseExerciseAdapter {
+ *   setupServices() { ... }
+ *   setupUseCase() { ... }
+ *   handleUpdate(sensorData, position) { ... }
+ * }
+ * ```
+ *
+ * Architecture : Adapters/Primary/UI/Exercises
+ *
+ * @abstract
+ */
+
+const Exercise = require('../../../../core/domain/entities/Exercise');
+const ExerciseStateManager = require('../../../../core/domain/services/ExerciseStateManager');
+
+class BaseExerciseAdapter extends Exercise {
+  /**
+   * Constructeur de base
+   *
+   * @param {Object} params - Paramètres
+   * @param {string} params.name - Nom de l'exercice
+   * @param {number} params.duration - Durée en ms
+   * @param {Object} params.audioOrchestrator - Orchestrateur audio
+   * @param {Object} params.state - State global
+   * @param {Object} params.calibrationOrchestrator - Orchestrateur calibration
+   * @param {Object} params.audioUIController - Contrôleur UI audio
+   * @param {Object} params.config - Configuration exercice
+   * @param {Object} params.audioSettings - Paramètres audio
+   */
+  constructor(params) {
+    // Vérifier classe abstraite
+    if (new.target === BaseExerciseAdapter) {
+      throw new Error('BaseExerciseAdapter est une classe abstraite et ne peut pas être instanciée directement');
+    }
+
+    // Appeler constructeur parent
+    super({
+      name: params.name,
+      duration: params.duration
+    });
+
+    // Dépendances externes (I/O)
+    this.audioOrchestrator = params.audioOrchestrator;
+    this.state = params.state;
+    this.calibrationOrchestrator = params.calibrationOrchestrator;
+    this.audioUIController = params.audioUIController;
+
+    // Configuration
+    this.config = params.config;
+    this.audioSettings = params.audioSettings;
+
+    // État lifecycle
+    this.checkIntervalId = null;
+    this.originalAudioParams = null;
+
+    // 🎯 HOOKS: Les classes dérivées doivent implémenter
+    this.setupServices();
+    this.setupStateManager();
+    this.setupUseCase();
+    this.initializeState();
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // HOOKS - À IMPLÉMENTER PAR LES CLASSES DÉRIVÉES
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Configure les services domaine
+   * @abstract
+   * @example
+   * setupServices() {
+   *   this.directionDetector = new DirectionDetector(this.config);
+   *   this.sensorAnalyzer = new SensorAnalyzer(this.config);
+   * }
+   */
+  setupServices() {
+    throw new Error('setupServices() doit être implémentée par la classe dérivée');
+  }
+
+  /**
+   * Configure le StateManager
+   * @abstract
+   * @example
+   * setupStateManager() {
+   *   this.stateManager = new ExerciseStateManager(this.config);
+   * }
+   */
+  setupStateManager() {
+    throw new Error('setupStateManager() doit être implémentée par la classe dérivée');
+  }
+
+  /**
+   * Configure le Use Case
+   * @abstract
+   * @example
+   * setupUseCase() {
+   *   this.monUseCase = new MonUseCase({
+   *     service1: this.service1,
+   *     service2: this.service2,
+   *     config: this.config
+   *   });
+   * }
+   */
+  setupUseCase() {
+    throw new Error('setupUseCase() doit être implémentée par la classe dérivée');
+  }
+
+  /**
+   * Initialise l'état de l'exercice
+   * @abstract
+   * @example
+   * initializeState() {
+   *   this.propriete1 = null;
+   *   this.propriete2 = null;
+   *   this.stateManager.applyInitialState(this);
+   * }
+   */
+  initializeState() {
+    throw new Error('initializeState() doit être implémentée par la classe dérivée');
+  }
+
+  /**
+   * Traite la mise à jour du capteur (logique métier)
+   * @abstract
+   * @param {Object} sensorData - Données capteur
+   * @param {string} position - Position capteur
+   * @param {number} now - Timestamp
+   */
+  handleUpdate(sensorData, position, now) {
+    throw new Error('handleUpdate() doit être implémentée par la classe dérivée');
+  }
+
+  /**
+   * Hook: Validation avant démarrage
+   * @returns {boolean} True si validation OK
+   */
+  validateBeforeStart() {
+    // Par défaut, vérifie calibration
+    if (!this.calibrationOrchestrator) {
+      console.error(`[${this.name}] ❌ CalibrationOrchestrator non disponible !`);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Hook: Configuration audio custom
+   */
+  configureAudio() {
+    // Par défaut, applique audioSettings
+    if (this.audioSettings) {
+      this.audioOrchestrator.setGrainSize(this.audioSettings.grainSize);
+      this.audioOrchestrator.setOverlap(this.audioSettings.overlap);
+    }
+  }
+
+  /**
+   * Hook: Logs custom au démarrage
+   */
+  logStart() {
+    console.log(`\n═══════════════════════════════════════════════════════════`);
+    console.log(`[${this.name}] Démarrage...`);
+    console.log(`═══════════════════════════════════════════════════════════\n`);
+  }
+
+  /**
+   * Hook: Cleanup custom à l'arrêt
+   */
+  cleanupOnStop() {
+    // Par défaut: rien
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // TEMPLATE METHODS - IMPLÉMENTATION COMMUNE
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Démarre l'exercice (Template Method)
+   * @final
+   */
+  start() {
+    if (this.isActive) {
+      console.warn(`[${this.name}] Exercice déjà actif`);
+      return false;
+    }
+
+    // 1. LOGS
+    this.logStart();
+
+    // 2. VALIDATION
+    if (!this.validateBeforeStart()) {
+      return false;
+    }
+
+    // 3. SAUVEGARDE PARAMÈTRES AUDIO
+    const currentParams = this.state.getAudioParameters();
+    this.originalAudioParams = {
+      grainSize: currentParams.grainSize,
+      overlap: currentParams.overlap
+    };
+
+    // 4. CONFIGURATION AUDIO
+    this.configureAudio();
+
+    // 5. ACTIVATION
+    this.isActive = true;
+    this.startTime = Date.now();
+
+    // 6. RÉINITIALISATION ÉTAT (via StateManager)
+    if (this.stateManager && this.stateManager.applyResetState) {
+      this.stateManager.applyResetState(this);
+    }
+
+    // 7. DÉMARRAGE AUDIO
+    if (this.audioOrchestrator) {
+      const audioState = this.state.getAudioState();
+      if (!audioState.isPlaying) {
+        this.audioOrchestrator.togglePlayPause();
+        console.log(`[${this.name}] Audio démarré`);
+      }
+    }
+
+    // 8. MONITORING
+    this._startMonitoring();
+
+    // 9. NOTIFICATION UI
+    this._notifyUI('EXERCISE_STARTED', {
+      name: this.name,
+      duration: this.duration
+    });
+
+    return true;
+  }
+
+  /**
+   * Arrête l'exercice (Template Method)
+   * @final
+   */
+  stop() {
+    if (!this.isActive) {
+      console.warn(`[${this.name}] Exercice non actif`);
+      return false;
+    }
+
+    console.log(`\n[${this.name}] Arrêt...`);
+
+    // 1. DÉSACTIVATION
+    this.isActive = false;
+
+    // 2. ARRÊT MONITORING
+    this._stopMonitoring();
+
+    // 3. STATISTIQUES
+    const stats = this.getStats();
+
+    // 4. LOGS
+    console.log(`\n═══════════════════════════════════════════════════════════`);
+    console.log(`[${this.name}] Exercice terminé`);
+    console.log(`Durée: ${stats.duration}s`);
+    console.log(`═══════════════════════════════════════════════════════════\n`);
+
+    // 5. CLEANUP
+    this.cleanupOnStop();
+
+    // 6. RESTAURATION AUDIO
+    if (this.originalAudioParams) {
+      this.audioOrchestrator.setGrainSize(this.originalAudioParams.grainSize);
+      this.audioOrchestrator.setOverlap(this.originalAudioParams.overlap);
+    }
+
+    // 7. ARRÊT AUDIO
+    if (this.audioOrchestrator) {
+      const audioState = this.state.getAudioState();
+      if (audioState.isPlaying) {
+        this.audioOrchestrator.togglePlayPause();
+      }
+    }
+
+    // 8. NOTIFICATION UI
+    this._notifyUI('EXERCISE_STOPPED', stats);
+
+    return true;
+  }
+
+  /**
+   * Traite mise à jour capteur (Template Method)
+   * @final
+   */
+  update(sensorData, position = 'DROIT') {
+    if (!this.isActive) {
+      return;
+    }
+
+    const now = Date.now();
+    this.updateCount++;
+
+    // Délégation à la classe dérivée
+    this.handleUpdate(sensorData, position, now);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // MÉTHODES UTILITAIRES COMMUNES
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Démarre le monitoring de progression
+   * @private
+   */
+  _startMonitoring() {
+    this.checkIntervalId = setInterval(() => {
+      this._checkProgress();
+    }, this.config?.checkInterval || 1000);
+  }
+
+  /**
+   * Arrête le monitoring
+   * @private
+   */
+  _stopMonitoring() {
+    if (this.checkIntervalId) {
+      clearInterval(this.checkIntervalId);
+      this.checkIntervalId = null;
+    }
+  }
+
+  /**
+   * Vérifie la progression et auto-arrêt si terminé
+   * @private
+   */
+  _checkProgress() {
+    if (!this.isActive) {
+      return;
+    }
+
+    const progress = this.getProgress();
+
+    // Notification UI progression
+    if (this.updateCount % 10 === 0) {
+      this._notifyUI('PROGRESS_UPDATE', {
+        progress,
+        elapsed: this.getElapsedTime(),
+        remaining: this.getRemainingTime()
+      });
+    }
+
+    // Auto-arrêt si terminé
+    if (this.isCompleted()) {
+      console.log(`[${this.name}] ⏰ Durée atteinte - Arrêt automatique`);
+      this.stop();
+    }
+  }
+
+  /**
+   * Notifie l'UI d'un événement
+   * @protected
+   * @param {string} eventType - Type d'événement
+   * @param {Object} data - Données à envoyer
+   */
+  _notifyUI(eventType, data = {}) {
+    if (this.audioUIController && this.audioUIController.notifyExerciseEvent) {
+      this.audioUIController.notifyExerciseEvent({
+        type: eventType,
+        exerciseName: this.name,
+        timestamp: Date.now(),
+        data
+      });
+    }
+  }
+
+  /**
+   * Obtient l'état actuel pour le Use Case
+   * @protected
+   * @returns {Object} État actuel
+   */
+  _getState() {
+    // À override par classe dérivée si nécessaire
+    return {};
+  }
+
+  /**
+   * Applique les mises à jour d'état
+   * @protected
+   * @param {Object} updates - Mises à jour
+   */
+  _applyStateUpdates(updates) {
+    if (!updates) return;
+
+    Object.keys(updates).forEach(key => {
+      this[key] = updates[key];
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // MÉTHODES ABSTRAITES (à implémenter)
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * Obtient les statistiques de l'exercice
+   * @abstract
+   * @returns {Object} Statistiques
+   */
+  getStats() {
+    throw new Error('getStats() doit être implémentée par la classe dérivée');
+  }
+}
+
+module.exports = BaseExerciseAdapter;

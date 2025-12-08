@@ -1,0 +1,14 @@
+{
+  "currentChapterId": "01-chapter-1",
+  "completedChapterIds": [
+    "00-intro-tutorial",
+    "01-chapter-1"
+  ],
+  "unlockedChapterIds": [
+    "00-intro-tutorial",
+    "01-chapter-1"
+  ],
+  "lastPlayedTime": 1765138917016,
+  "totalPlayTime": 82927,
+  "version": "1.0.0"
+}

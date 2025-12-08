@@ -1,0 +1,151 @@
+{
+  "id": "00-intro-tutorial",
+  "title": "Prologue - Découverte",
+  "scenes": [
+    {
+      "id": "welcome-dialogue",
+      "type": "dialogue",
+      "background": null,
+      "dialogues": [
+        {
+          "character": "guide",
+          "portrait": {
+            "emotion": "welcoming",
+            "animated": false
+          },
+          "text": "Bienvenue dans Heart of Glass. Je suis votre guide pour cette expérience sensorielle unique.",
+          "typewriterSpeed": 50,
+          "audio": null,
+          "skippable": true,
+          "autoAdvance": false
+        },
+        {
+          "character": "guide",
+          "portrait": {
+            "emotion": "explaining",
+            "animated": false
+          },
+          "text": "Cette application utilise des capteurs physiques pour créer une expérience immersive alliant mouvement et son.",
+          "typewriterSpeed": 50,
+          "audio": null,
+          "skippable": true,
+          "autoAdvance": false
+        },
+        {
+          "character": "guide",
+          "portrait": {
+            "emotion": "encouraging",
+            "animated": false
+          },
+          "text": "Commençons par découvrir l'interface ensemble...",
+          "typewriterSpeed": 50,
+          "audio": null,
+          "skippable": true,
+          "autoAdvance": false
+        }
+      ]
+    },
+    {
+      "id": "tutorial-interface",
+      "type": "tutorial",
+      "tutorialSteps": [
+        {
+          "id": "discover-tabs",
+          "dialogue": {
+            "character": "guide",
+            "portrait": {
+              "emotion": "explaining",
+              "animated": false
+            },
+            "text": "Voici l'interface principale. Vous pouvez naviguer entre les différents onglets pour accéder aux fonctionnalités.",
+            "typewriterSpeed": 50,
+            "skippable": false
+          },
+          "highlight": "#tabs-container",
+          "waitForInteraction": false,
+          "validationCondition": {
+            "type": "timeout",
+            "duration": 3000
+          }
+        },
+        {
+          "id": "heart-of-glass-tab",
+          "dialogue": {
+            "character": "guide",
+            "portrait": {
+              "emotion": "explaining",
+              "animated": false
+            },
+            "text": "L'onglet Heart of Glass est l'endroit où vous suivrez l'histoire narrative et débloquerez de nouveaux chapitres.",
+            "typewriterSpeed": 50,
+            "skippable": false
+          },
+          "highlight": "#heart-of-glass-tab",
+          "waitForInteraction": false,
+          "validationCondition": {
+            "type": "timeout",
+            "duration": 3000
+          }
+        },
+        {
+          "id": "sensors-tab",
+          "dialogue": {
+            "character": "guide",
+            "portrait": {
+              "emotion": "explaining",
+              "animated": false
+            },
+            "text": "L'onglet Capteurs vous permet de connecter vos capteurs Bluetooth et de calibrer vos mouvements.",
+            "typewriterSpeed": 50,
+            "skippable": false
+          },
+          "highlight": "#sensors-tab",
+          "waitForInteraction": false,
+          "validationCondition": {
+            "type": "timeout",
+            "duration": 3000
+          }
+        }
+      ]
+    },
+    {
+      "id": "connect-sensors-dialogue",
+      "type": "dialogue",
+      "background": null,
+      "dialogues": [
+        {
+          "character": "guide",
+          "portrait": {
+            "emotion": "encouraging",
+            "animated": false
+          },
+          "text": "Maintenant, connectons vos capteurs physiques pour commencer l'expérience.",
+          "typewriterSpeed": 50,
+          "audio": null,
+          "skippable": true,
+          "autoAdvance": false
+        }
+      ]
+    },
+    {
+      "id": "exercise-intro",
+      "type": "exercise-transition",
+      "dialogue": {
+        "character": "guide",
+        "portrait": {
+          "emotion": "encouraging",
+          "animated": false
+        },
+        "text": "Parfait ! Vous êtes prêt pour votre premier exercice : Rotation Continue. Suivez les instructions et laissez-vous guider par le son...",
+        "typewriterSpeed": 50,
+        "skippable": true
+      },
+      "unlockExercise": "rotation-continue",
+      "autoLaunchExercise": false
+    }
+  ],
+  "metadata": {
+    "description": "Chapitre d'introduction et tutoriel pour découvrir l'interface et les capteurs",
+    "estimatedDuration": 5
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "name": "heart-of-glass-hexagonal",
+  "version": "1.0.0",
+  "description": "Heart of Glass project with hexagonal architecture",
+  "main": "src/adapters/primary/electron/main/index.js",
+  "scripts": {
+    "start": "set NOBLE_REPORT_ALL_HCI_EVENTS=1&& set NOBLE_HCI_DEVICE_ID=0&& set NOBLE_MULTI_ROLE=1&& electron .",
+    "dev": "set NOBLE_REPORT_ALL_HCI_EVENTS=1&& set NOBLE_HCI_DEVICE_ID=0&& set NOBLE_MULTI_ROLE=1&& cross-env NODE_ENV=development electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:portable": "electron-builder --win portable",
+    "test": "jest",
+    "test:unit": "jest --testMatch='**/tests/unit/**/*.test.js'",
+    "test:integration": "jest --testMatch='**/tests/integration/**/*.test.js'",
+    "lint": "eslint src/**/*.js",
+    "format": "prettier --write src/**/*.js"
+  },
+  "keywords": [
+    "electron",
+    "bluetooth",
+    "imu",
+    "sensors",
+    "hexagonal-architecture"
+  ],
+  "author": "HelloDave666",
+  "license": "MIT",
+  "devDependencies": {
+    "@electron/rebuild": "^3.2.10",
+    "cross-env": "^7.0.3",
+    "electron": "^22.3.27",
+    "electron-builder": "^24.0.0",
+    "eslint": "^8.0.0",
+    "jest": "^29.0.0",
+    "prettier": "^2.8.0"
+  },
+  "build": {
+    "appId": "com.heartofglass.app",
+    "productName": "Heart of Glass",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "dependencies": {
+    "@abandonware/noble": "^1.9.2-17",
+    "lamejs": "^1.2.1"
+  }
+}

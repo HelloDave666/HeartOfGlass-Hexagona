@@ -1,0 +1,53 @@
+{
+  "id": "01-chapter-1",
+  "title": "Chapitre 1 - Les Premiers Pas",
+  "scenes": [
+    {
+      "id": "chapter-1-intro",
+      "type": "dialogue",
+      "background": null,
+      "dialogues": [
+        {
+          "character": "narrator",
+          "portrait": {
+            "emotion": "neutral",
+            "animated": false
+          },
+          "text": "Vous avez complété votre premier exercice. Félicitations !",
+          "typewriterSpeed": 50,
+          "audio": null,
+          "skippable": true,
+          "autoAdvance": false
+        },
+        {
+          "character": "guide",
+          "portrait": {
+            "emotion": "encouraging",
+            "animated": false
+          },
+          "text": "Vous commencez à comprendre comment vos mouvements influencent le son. C'est le début de votre voyage...",
+          "typewriterSpeed": 50,
+          "audio": null,
+          "skippable": true,
+          "autoAdvance": false
+        },
+        {
+          "character": "guide",
+          "portrait": {
+            "emotion": "explaining",
+            "animated": false
+          },
+          "text": "À mesure que vous progressez, de nouveaux chapitres et exercices se débloqueront. Continuez à explorer !",
+          "typewriterSpeed": 50,
+          "audio": null,
+          "skippable": true,
+          "autoAdvance": false
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "description": "Premier chapitre après l'intro",
+    "estimatedDuration": 2
+  }
+}
