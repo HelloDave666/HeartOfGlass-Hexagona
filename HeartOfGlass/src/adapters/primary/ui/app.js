@@ -3,7 +3,7 @@
 // Phase 7 - Step 11 : AppBootstrap - app.js simplifié à ~180 lignes
 // AJOUT : ExerciseController pour gérer les exercices (RotationContinue, etc.)
 
-console.log('Heart of Glass - Version avec Architecture Hexagonale Complète + Exercices');
+console.log('Fool of Craft: The Sound from Gesture - Architecture Hexagonale + Explorations Sonores');
 
 // ========================================
 // MODE HYBRIDE : Basculement IPC / Direct
@@ -79,6 +79,11 @@ let exerciseController = null;
 // ║ AJOUT 2/5 : Variable pour l'orchestrateur de calibration ║
 // ╚═══════════════════════════════════════════════════════════════╝
 let calibrationOrchestrator = null;
+
+// ╔═══════════════════════════════════════════════════════════════╗
+// ║ AJOUT 3/5 : Référence au FoolOfCraftUIController             ║
+// ╚═══════════════════════════════════════════════════════════════╝
+let foolOfCraftUIController = null;
 
 // [OK] MODIFIÉ : Stocker toutes les données de chaque capteur (angles, gyro, accel)
 let lastSensorAngles = {
@@ -164,16 +169,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
  // Afficher le splash screen d'introduction
  const splashScreen = new SplashScreenController({
- // Chemin relatif depuis le fichier HTML (renderer process)
- imagePath: '../../../../../assets/intro-splash.png', // Adapte selon ton nom de fichier
+ imagePath: null, // Pas d'image, affichage texte par défaut
  duration: 6000, // 6 secondes
  skippable: true // Peut skip avec click/espace
  });
 
  // Attendre que le splash se termine
  await splashScreen.show(() => {
- console.log('[App] Splash screen terminé, chargement de l\'interface...');
+ console.log('[App] Splash screen terminé, chargement de Fool of Craft...');
  });
+
+ // ╔═══════════════════════════════════════════════════════════════╗
+ // ║ CRÉER ExerciseController AVANT bootstrap                      ║
+ // ╚═══════════════════════════════════════════════════════════════╝
+ // Note: Créer la référence maintenant, sera initialisé après bootstrap
+ const ExerciseController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'ExerciseController.js'));
 
  // Bootstrap tous les contrôleurs via AppBootstrap
  controllers = await AppBootstrap.bootstrap({
@@ -361,11 +371,9 @@ document.addEventListener('DOMContentLoaded', async () => {
  }
 
  // ╔═══════════════════════════════════════════════════════════════╗
- // ║ AJOUT 5/5 : Initialisation ExerciseController ║
+ // ║ AJOUT 5/6 : Initialisation ExerciseController                 ║
  // ╚═══════════════════════════════════════════════════════════════╝
  try {
- const ExerciseController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'ExerciseController.js'));
-
  exerciseController = new ExerciseController({
  audioOrchestrator: orchestrators.audio,
  state,
@@ -374,6 +382,8 @@ document.addEventListener('DOMContentLoaded', async () => {
  });
 
  exerciseController.initialize();
+
+ console.log('[App] [OK] ExerciseController prêt');
 
  // Exposer les commandes globalement (pour console)
  if (window) {
@@ -394,7 +404,6 @@ document.addEventListener('DOMContentLoaded', async () => {
  return exerciseController.getStatus();
  };
 
- console.log('[App] [OK] ExerciseController prêt');
  console.log('[App] 💡 Commandes exercices:');
  console.log(' - window.startRotationExercise()');
  console.log(' - window.stopRotationExercise()');
@@ -403,6 +412,30 @@ document.addEventListener('DOMContentLoaded', async () => {
  } catch (error) {
  console.warn('[App] ExerciseController non disponible:', error.message);
  console.warn('[App] L\'application fonctionnera sans les exercices');
+ }
+
+ // ╔═══════════════════════════════════════════════════════════════╗
+ // ║ AJOUT 6/6 : Initialisation FoolOfCraftUIController            ║
+ // ╚═══════════════════════════════════════════════════════════════╝
+ try {
+ const FoolOfCraftUIController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'FoolOfCraftUIController.js'));
+
+ foolOfCraftUIController = new FoolOfCraftUIController({
+ state,
+ tabController: controllers.tabController,
+ exerciseController: exerciseController
+ });
+
+ const initialized = foolOfCraftUIController.initialize('explorationsContent');
+
+ if (initialized) {
+ console.log('[App] [OK] FoolOfCraftUIController initialisé');
+ controllers.foolOfCraftUIController = foolOfCraftUIController;
+ } else {
+ console.error('[App] Échec initialisation FoolOfCraftUIController');
+ }
+ } catch (error) {
+ console.warn('[App] FoolOfCraftUIController non disponible:', error.message);
  }
  
  console.log('[App] [OK] Application prête');

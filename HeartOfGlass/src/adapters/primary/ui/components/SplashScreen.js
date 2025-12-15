@@ -24,7 +24,11 @@ class SplashScreen {
 
     this.container.innerHTML = `
       <div class="splash-content">
-        <img class="splash-image" src="" alt="Heart of Glass">
+        <img class="splash-image" src="" alt="Fool of Craft" style="display:none;">
+        <div class="splash-text">
+          <h1 class="splash-title">Fool of Craft</h1>
+          <p class="splash-subtitle">The Sound from Gesture</p>
+        </div>
       </div>
     `;
 
@@ -80,6 +84,42 @@ class SplashScreen {
         width: 100%;
         height: 100%;
         object-fit: contain;
+      }
+
+      .splash-text {
+        text-align: center;
+        animation: fadeIn 1s ease-in;
+      }
+
+      .splash-title {
+        margin: 0;
+        font-size: 96px;
+        font-weight: bold;
+        color: #fff;
+        background: linear-gradient(135deg, #FFB74D 0%, #667eea 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        letter-spacing: 4px;
+      }
+
+      .splash-subtitle {
+        margin: 20px 0 0 0;
+        font-size: 24px;
+        color: rgba(255, 255, 255, 0.7);
+        font-style: italic;
+        letter-spacing: 2px;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
     `;
 

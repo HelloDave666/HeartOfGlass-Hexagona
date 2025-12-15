@@ -83,6 +83,27 @@ class HeartOfGlassUIController {
           </div>
         </div>
 
+        <!-- Zone vidéo narrative -->
+        <div class="video-zone">
+          <div class="video-header">
+            <h3>Vidéos et Tutoriels</h3>
+            <p class="video-subtitle">Découvrez l'histoire de Rita et apprenez à utiliser les capteurs</p>
+          </div>
+          <div class="video-container">
+            <video id="narrativeVideo" class="video-player" controls>
+              <source src="" type="video/mp4">
+              Votre navigateur ne supporte pas la lecture vidéo.
+            </video>
+            <div class="video-placeholder" id="videoPlaceholder">
+              <div class="placeholder-content">
+                <div class="placeholder-icon">▶</div>
+                <p>Aucune vidéo chargée</p>
+                <p class="placeholder-hint">Utilisez le chemin: assets/videos/votre-video.mp4</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Liste des chapitres -->
         <div class="chapters-list" id="chaptersList">
           <!-- Les chapitres seront injectés ici -->
@@ -423,6 +444,81 @@ class HeartOfGlassUIController {
 
       .instructions strong {
         color: #667eea;
+      }
+
+      /* Zone vidéo narrative (sans vignettes) */
+      .video-zone {
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 193, 7, 0.2);
+        border-radius: 16px;
+        padding: 30px;
+        margin-bottom: 30px;
+      }
+
+      .video-header {
+        text-align: center;
+        margin-bottom: 25px;
+      }
+
+      .video-header h3 {
+        margin: 0 0 8px 0;
+        font-size: 24px;
+        color: #fff;
+        background: linear-gradient(135deg, #FFB74D 0%, #667eea 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .video-subtitle {
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 14px;
+        margin: 0;
+      }
+
+      .video-container {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        background: #000;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 2px solid rgba(255, 193, 7, 0.3);
+      }
+
+      .video-player {
+        width: 100%;
+        height: 100%;
+        display: none;
+      }
+
+      .video-placeholder {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+      }
+
+      .placeholder-content {
+        text-align: center;
+        color: rgba(255, 255, 255, 0.5);
+      }
+
+      .placeholder-icon {
+        font-size: 64px;
+        margin-bottom: 15px;
+        opacity: 0.3;
+      }
+
+      .placeholder-content p {
+        margin: 5px 0;
+      }
+
+      .placeholder-hint {
+        font-size: 12px;
+        opacity: 0.7;
       }
     `;
 

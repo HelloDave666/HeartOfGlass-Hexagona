@@ -12,8 +12,7 @@ const RecordingController = require(path.join(projectRoot, 'src', 'adapters', 'p
 const TimelineController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'TimelineController.js'));
 const IMUController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'IMUController.js'));
 const CalibrationUIController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'CalibrationUIController.js'));
-const NarrativeController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'NarrativeController.js'));
-const HeartOfGlassUIController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'HeartOfGlassUIController.js'));
+const FoolOfCraftUIController = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'controllers', 'FoolOfCraftUIController.js'));
 
 const CalibrationOrchestrator = require(path.join(projectRoot, 'src', 'adapters', 'primary', 'ui', 'orchestrators', 'CalibrationOrchestrator.js'));
 
@@ -46,13 +45,10 @@ class AppBootstrap {
  // [NEW] Setup calibration interface
  const { calibrationOrchestrator, calibrationUIController } = this.setupCalibrationInterface(state, callbacks.calibrationCallbacks);
 
- // Setup narrative controller
- const narrativeController = await this.setupNarrativeController(state, callbacks.exerciseController, callbacks.audioOrchestrator);
+ // Note: FoolOfCraftUIController sera créé APRÈS dans app.js
+ // une fois que exerciseController sera initialisé avec les orchestrateurs
 
- // Setup Heart of Glass UI
- const heartOfGlassUIController = this.setupHeartOfGlassUI(narrativeController);
-
- console.log('[AppBootstrap] [OK] Tous les contrôleurs initialisés');
+ console.log('[AppBootstrap] [OK] Tous les contrôleurs initialisés (sauf FoolOfCraft)');
 
  return {
  tabController,
@@ -62,9 +58,7 @@ class AppBootstrap {
  timelineController,
  imuController,
  calibrationOrchestrator,
- calibrationUIController,
- narrativeController,
- heartOfGlassUIController
+ calibrationUIController
  };
  }
 
@@ -272,53 +266,30 @@ class AppBootstrap {
  }
 
  /**
- * Setup NarrativeController
+ * Setup FoolOfCraftUIController
  * @param {Object} state - StateManager
+ * @param {Object} tabController - TabController
  * @param {Object} exerciseController - ExerciseController (optionnel)
- * @param {Object} audioOrchestrator - AudioOrchestrator (optionnel)
- * @returns {Promise<NarrativeController>}
+ * @returns {FoolOfCraftUIController}
  */
- static async setupNarrativeController(state, exerciseController, audioOrchestrator) {
- console.log('[Narrative] Configuration système narratif...');
+ static setupFoolOfCraftUI(state, tabController, exerciseController) {
+ console.log('[FoolOfCraft] Configuration interface explorations...');
 
- const narrativeController = new NarrativeController({
+ const foolOfCraftUIController = new FoolOfCraftUIController({
  state,
- exerciseController,
- audioOrchestrator
+ tabController,
+ exerciseController
  });
 
- const initialized = await narrativeController.initialize();
+ const initialized = foolOfCraftUIController.initialize('explorationsContent');
 
  if (!initialized) {
- console.error('[AppBootstrap] Échec initialisation NarrativeController');
+ console.error('[AppBootstrap] Échec initialisation FoolOfCraftUIController');
  return null;
  }
 
- console.log('[Narrative] Système narratif configuré');
- return narrativeController;
- }
-
- /**
- * Setup HeartOfGlassUIController
- * @param {NarrativeController} narrativeController - Contrôleur narratif
- * @returns {HeartOfGlassUIController}
- */
- static setupHeartOfGlassUI(narrativeController) {
- console.log('[HeartOfGlass] Configuration interface Heart of Glass...');
-
- const heartOfGlassUIController = new HeartOfGlassUIController({
- narrativeController
- });
-
- const initialized = heartOfGlassUIController.initialize('mainContent');
-
- if (!initialized) {
- console.error('[AppBootstrap] Échec initialisation HeartOfGlassUIController');
- return null;
- }
-
- console.log('[HeartOfGlass] Interface Heart of Glass configurée');
- return heartOfGlassUIController;
+ console.log('[FoolOfCraft] Interface explorations configurée');
+ return foolOfCraftUIController;
  }
 }
 

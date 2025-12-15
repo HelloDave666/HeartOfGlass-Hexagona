@@ -1,7 +1,7 @@
 {
-  "name": "heart-of-glass-hexagonal",
+  "name": "fool-of-craft",
   "version": "1.0.0",
-  "description": "Heart of Glass project with hexagonal architecture",
+  "description": "Fool of Craft: The Sound from Gesture - Sound exploration through craft gestures",
   "main": "src/adapters/primary/electron/main/index.js",
   "scripts": {
     "start": "set NOBLE_REPORT_ALL_HCI_EVENTS=1&& set NOBLE_HCI_DEVICE_ID=0&& set NOBLE_MULTI_ROLE=1&& electron .",
@@ -20,7 +20,10 @@
     "bluetooth",
     "imu",
     "sensors",
-    "hexagonal-architecture"
+    "hexagonal-architecture",
+    "sound-exploration",
+    "craft-gestures",
+    "granular-synthesis"
   ],
   "author": "HelloDave666",
   "license": "MIT",
@@ -34,8 +37,8 @@
     "prettier": "^2.8.0"
   },
   "build": {
-    "appId": "com.heartofglass.app",
-    "productName": "Heart of Glass",
+    "appId": "com.foolofcraft.app",
+    "productName": "Fool of Craft",
     "directories": {
       "output": "dist"
     },
