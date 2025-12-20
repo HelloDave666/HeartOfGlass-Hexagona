@@ -717,11 +717,18 @@ class FoolOfCraftUIController {
     }
 
     try {
-      // Lancer l'exercice
-      const started = this.exerciseController.startExercise('rotationContinue');
+      // IMPORTANT: Tracker l'exercice et la durée pour la complétion
+      // Le tutoriel lance toujours en mode 3min
+      this.currentExercise = 'rotationContinue';
+      this.currentDuration = '3min';
+
+      // Lancer l'exercice avec la durée 3min (tutoriel)
+      const started = this.exerciseController.startExercise('rotationContinue', '3min');
 
       if (!started) {
         alert('❌ Impossible de lancer l\'exercice\n\nVérifiez que:\n- Les capteurs sont connectés\n- Un fichier audio est chargé\n- La calibration est complétée');
+        this.currentExercise = null;
+        this.currentDuration = null;
         return;
       }
 
@@ -731,7 +738,7 @@ class FoolOfCraftUIController {
       // ✨ PROGRESSION: Marquer le tutoriel comme complété
       if (!this.userProgress.tutorialCompleted) {
         this.completeTutorial();
-        console.log('[FoolOfCraft] 🎉 Tutoriel complété! Premier exercice débloqué');
+        console.log('[FoolOfCraft] 🎉 Tutoriel complété! Premier exercice débloqué (3min)');
       }
 
       // Naviguer vers l'onglet Explorations
@@ -742,10 +749,12 @@ class FoolOfCraftUIController {
       // Transformer l'assistant en mode "Exercice actif"
       this._showExerciseActiveMode();
 
-      console.log('[FoolOfCraft] ✓ Exercice Rotation Continue lancé avec succès');
+      console.log('[FoolOfCraft] ✓ Exercice Rotation Continue lancé avec succès (3min via tutoriel)');
     } catch (error) {
       console.error('[FoolOfCraft] Erreur lancement exercice:', error);
       alert('❌ Erreur lors du lancement de l\'exercice:\n\n' + error.message);
+      this.currentExercise = null;
+      this.currentDuration = null;
     }
   }
 
