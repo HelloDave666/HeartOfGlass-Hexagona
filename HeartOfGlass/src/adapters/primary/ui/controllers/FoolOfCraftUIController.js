@@ -30,6 +30,20 @@ class FoolOfCraftUIController {
       currentStep: 1
     };
 
+    // Système de progression et déblocage
+    this.userProgress = this._loadProgress();
+
+    // Exposer commandes de développement pour prototypage
+    if (typeof window !== 'undefined') {
+      window.unlockAll = () => this._unlockAll();
+      window.resetProgress = () => this._resetProgress();
+      window.showProgress = () => this._showProgress();
+      console.log('[FoolOfCraft] 🔧 Commandes développement:');
+      console.log('  window.unlockAll() - Débloque tous les exercices');
+      console.log('  window.resetProgress() - Réinitialise la progression');
+      console.log('  window.showProgress() - Affiche la progression actuelle');
+    }
+
     console.log('[FoolOfCraft] Controller created');
   }
 
@@ -635,6 +649,12 @@ class FoolOfCraftUIController {
       // Marquer l'exercice comme lancé
       this.tutorialProgress.step4_exerciseLaunched = true;
 
+      // ✨ PROGRESSION: Marquer le tutoriel comme complété
+      if (!this.userProgress.tutorialCompleted) {
+        this.completeTutorial();
+        console.log('[FoolOfCraft] 🎉 Tutoriel complété! Premier exercice débloqué');
+      }
+
       // Naviguer vers l'onglet Explorations
       if (this.tabController) {
         this.tabController.activateTab('explorationsTab');
@@ -712,15 +732,28 @@ class FoolOfCraftUIController {
   }
 
   /**
-   * Arrête l'exercice en cours
+   * Arrête l'exercice en cours ET la lecture audio
    * @private
    */
   _stopExercise() {
-    console.log('[FoolOfCraft] Arrêt de l\'exercice');
+    console.log('[FoolOfCraft] Arrêt de l\'exercice et de l\'audio');
 
     // Arrêter l'exercice via le contrôleur
     if (this.exerciseController) {
       this.exerciseController.stopCurrentExercise();
+
+      // IMPORTANT: Arrêter complètement la lecture audio
+      // (sinon la lecture continue en vitesse normale)
+      const audioOrchestrator = this.exerciseController.audioOrchestrator;
+      if (audioOrchestrator) {
+        const audioState = audioOrchestrator.state?.getAudioState();
+
+        // Arrêter seulement si l'audio est en lecture
+        if (audioState && audioState.isPlaying) {
+          console.log('[FoolOfCraft] Arrêt de la lecture audio');
+          audioOrchestrator.togglePlayPause(); // Stop audio
+        }
+      }
     }
 
     // Réinitialiser le flag
@@ -728,6 +761,8 @@ class FoolOfCraftUIController {
 
     // Retourner à l'étape 4 du tutoriel
     this._renderCurrentStep();
+
+    console.log('[FoolOfCraft] Exercice et audio arrêtés');
   }
 
   /**
@@ -880,30 +915,43 @@ class FoolOfCraftUIController {
   }
 
   /**
-   * Crée une card d'exploration
+   * Crée une card d'exploration avec système de déblocage
    * @private
    */
   _createExplorationCard(exploration, categoryId) {
     const card = document.createElement('div');
-    card.className = `exploration-card ${exploration.available ? 'available' : 'coming-soon'}`;
+
+    // Vérifier si l'exercice est débloqué via système de progression
+    const isUnlocked = this.isExerciseUnlocked(exploration.id);
+    const isCompleted = this.userProgress.exercisesCompleted.includes(exploration.id);
+
+    card.className = `exploration-card ${isUnlocked ? 'available' : 'locked'}`;
 
     card.innerHTML = `
       <div class="exploration-header">
-        <h4 class="exploration-name">${exploration.name}</h4>
-        ${exploration.available ?
-          '<span class="status-badge available-badge">Disponible</span>' :
-          '<span class="status-badge coming-badge">Bientôt</span>'
+        <h4 class="exploration-name">
+          ${!isUnlocked ? '🔒 ' : ''}${exploration.name}
+        </h4>
+        ${isCompleted ?
+          '<span class="status-badge completed-badge">✓ Complété</span>' :
+          isUnlocked ?
+            '<span class="status-badge available-badge">Débloqué</span>' :
+            '<span class="status-badge locked-badge">🔒 Verrouillé</span>'
         }
       </div>
       <p class="exploration-description">${exploration.description}</p>
-      ${exploration.available ? `
+      ${isUnlocked ? `
         <button class="exploration-launch-btn" data-exploration-id="${exploration.id}" data-category="${categoryId}">
-          Lancer
+          ${isCompleted ? 'Rejouer' : 'Lancer'}
         </button>
-      ` : ''}
+      ` : `
+        <div class="locked-message">
+          Complétez les exercices précédents pour débloquer
+        </div>
+      `}
     `;
 
-    if (exploration.available) {
+    if (isUnlocked) {
       const launchBtn = card.querySelector('.exploration-launch-btn');
       launchBtn.addEventListener('click', () => {
         this._launchExploration(exploration.id, categoryId);
@@ -1785,6 +1833,19 @@ class FoolOfCraftUIController {
       .available-badge {
         background: rgba(76, 175, 80, 0.2);
         color: #4CAF50;
+        border: 1px solid rgba(76, 175, 80, 0.3);
+      }
+
+      .completed-badge {
+        background: rgba(33, 150, 243, 0.2);
+        color: #2196F3;
+        border: 1px solid rgba(33, 150, 243, 0.3);
+      }
+
+      .locked-badge {
+        background: rgba(158, 158, 158, 0.2);
+        color: #9e9e9e;
+        border: 1px solid rgba(158, 158, 158, 0.3);
       }
 
       .coming-badge {
@@ -1817,6 +1878,22 @@ class FoolOfCraftUIController {
         box-shadow: 0 4px 15px rgba(255, 183, 77, 0.4);
       }
 
+      .exploration-card.locked {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .locked-message {
+        padding: 12px;
+        background: rgba(158, 158, 158, 0.1);
+        border: 1px dashed rgba(158, 158, 158, 0.3);
+        border-radius: 6px;
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 12px;
+        text-align: center;
+        font-style: italic;
+      }
+
       @keyframes fadeIn {
         from { opacity: 0; }
         to { opacity: 1; }
@@ -1824,6 +1901,196 @@ class FoolOfCraftUIController {
     `;
 
     document.head.appendChild(style);
+  }
+
+  /**
+   * ==================================================
+   * SYSTÈME DE PROGRESSION ET DÉBLOCAGE
+   * ==================================================
+   */
+
+  /**
+   * Charge la progression depuis localStorage
+   * @private
+   * @returns {Object}
+   */
+  _loadProgress() {
+    try {
+      const saved = localStorage.getItem('fool-of-craft-progress');
+      if (!saved) {
+        return this._getDefaultProgress();
+      }
+
+      const progress = JSON.parse(saved);
+      console.log('[FoolOfCraft] Progression chargée:', progress);
+      return progress;
+    } catch (error) {
+      console.error('[FoolOfCraft] Erreur chargement progression:', error);
+      return this._getDefaultProgress();
+    }
+  }
+
+  /**
+   * Progression par défaut (première utilisation)
+   * @private
+   * @returns {Object}
+   */
+  _getDefaultProgress() {
+    return {
+      tutorialCompleted: false,
+      exercisesUnlocked: [],
+      exercisesCompleted: [],
+      lastPlayedDate: null,
+      version: '1.0.0'
+    };
+  }
+
+  /**
+   * Sauvegarde la progression dans localStorage
+   * @private
+   */
+  _saveProgress() {
+    try {
+      localStorage.setItem('fool-of-craft-progress', JSON.stringify(this.userProgress));
+      console.log('[FoolOfCraft] Progression sauvegardée');
+    } catch (error) {
+      console.error('[FoolOfCraft] Erreur sauvegarde progression:', error);
+    }
+  }
+
+  /**
+   * Vérifie si un exercice est débloqué
+   * @param {string} exerciseId - ID de l'exercice
+   * @returns {boolean}
+   */
+  isExerciseUnlocked(exerciseId) {
+    // Tutoriel toujours disponible
+    if (exerciseId === 'tutorial') {
+      return true;
+    }
+
+    // Premier exercice débloqué quand tutoriel terminé
+    if (exerciseId === 'rotationContinue') {
+      return this.userProgress.tutorialCompleted;
+    }
+
+    // Autres exercices débloqués selon progression
+    return this.userProgress.exercisesUnlocked.includes(exerciseId);
+  }
+
+  /**
+   * Débloque un exercice
+   * @param {string} exerciseId - ID de l'exercice à débloquer
+   */
+  unlockExercise(exerciseId) {
+    if (!this.userProgress.exercisesUnlocked.includes(exerciseId)) {
+      this.userProgress.exercisesUnlocked.push(exerciseId);
+      this._saveProgress();
+      console.log(`[FoolOfCraft] ✓ Exercice débloqué: ${exerciseId}`);
+    }
+  }
+
+  /**
+   * Marque le tutoriel comme terminé
+   */
+  completeTutorial() {
+    this.userProgress.tutorialCompleted = true;
+    this.unlockExercise('rotationContinue'); // Débloque le premier exercice
+    this._saveProgress();
+    console.log('[FoolOfCraft] ✓ Tutoriel terminé - Rotation Continue débloqué');
+  }
+
+  /**
+   * Marque un exercice comme complété
+   * @param {string} exerciseId - ID de l'exercice
+   */
+  completeExercise(exerciseId) {
+    if (!this.userProgress.exercisesCompleted.includes(exerciseId)) {
+      this.userProgress.exercisesCompleted.push(exerciseId);
+      this._saveProgress();
+
+      // Débloquer le prochain exercice selon ordre prédéfini
+      this._unlockNextExercise(exerciseId);
+
+      console.log(`[FoolOfCraft] ✓ Exercice complété: ${exerciseId}`);
+    }
+  }
+
+  /**
+   * Débloque le prochain exercice selon ordre de progression
+   * @private
+   * @param {string} completedExerciseId - ID de l'exercice complété
+   */
+  _unlockNextExercise(completedExerciseId) {
+    const progressionOrder = [
+      'rotationContinue',
+      'synchronisationMains',
+      'etiragePoin te',
+      'soufflageRythmique',
+      'torsionTube'
+    ];
+
+    const currentIndex = progressionOrder.indexOf(completedExerciseId);
+    if (currentIndex >= 0 && currentIndex < progressionOrder.length - 1) {
+      const nextExercise = progressionOrder[currentIndex + 1];
+      this.unlockExercise(nextExercise);
+      console.log(`[FoolOfCraft] 🎉 Prochain exercice débloqué: ${nextExercise}`);
+    }
+  }
+
+  /**
+   * DÉVELOPPEMENT: Débloque tous les exercices
+   * @private
+   */
+  _unlockAll() {
+    this.userProgress.tutorialCompleted = true;
+    this.userProgress.exercisesUnlocked = [
+      'rotationContinue',
+      'synchronisationMains',
+      'etiragePoin te',
+      'soufflageRythmique',
+      'torsionTube',
+      'centrageArgile',
+      'monteeParois',
+      'ourletsRebords',
+      'emaillagePrecis',
+      'tournageCompose',
+      'chaine Trame',
+      'tensionFils',
+      'tissageCroise',
+      'nouageMain'
+    ];
+    this._saveProgress();
+    console.log('[FoolOfCraft] 🔓 TOUS LES EXERCICES DÉBLOQUÉS (mode développement)');
+    console.log('[FoolOfCraft] Rechargez la page pour voir les changements');
+    return 'Tous les exercices débloqués! Rechargez la page.';
+  }
+
+  /**
+   * DÉVELOPPEMENT: Réinitialise la progression
+   * @private
+   */
+  _resetProgress() {
+    this.userProgress = this._getDefaultProgress();
+    this._saveProgress();
+    console.log('[FoolOfCraft] 🔄 Progression réinitialisée');
+    console.log('[FoolOfCraft] Rechargez la page pour voir les changements');
+    return 'Progression réinitialisée! Rechargez la page.';
+  }
+
+  /**
+   * DÉVELOPPEMENT: Affiche la progression actuelle
+   * @private
+   */
+  _showProgress() {
+    console.log('='.repeat(60));
+    console.log('PROGRESSION FOOL OF CRAFT');
+    console.log('='.repeat(60));
+    console.log('Tutoriel complété:', this.userProgress.tutorialCompleted);
+    console.log('Exercices débloqués:', this.userProgress.exercisesUnlocked);
+    console.log('Exercices complétés:', this.userProgress.exercisesCompleted);
+    console.log('='.repeat(60));
+    return this.userProgress;
   }
 }
 

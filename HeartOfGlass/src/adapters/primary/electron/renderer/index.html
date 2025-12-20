@@ -8,14 +8,25 @@
 </head>
 <body>
     <div id="app">
-        <!-- Navigation par onglets -->
-        <nav class="tab-navigation">
-            <button class="tab-button active" data-tab="explorationsTab">Explorations</button>
-            <button class="tab-button" data-tab="mainTab">Principal</button>
-            <button class="tab-button" data-tab="calibrationTab">Calibration</button>
-            <button class="tab-button" data-tab="soundTab">Sound Control</button>
-            <button class="tab-button" data-tab="settingsTab">Paramètres</button>
-        </nav>
+        <!-- Header avec navigation et bouton d'enregistrement -->
+        <header class="app-header">
+            <!-- Navigation par onglets -->
+            <nav class="tab-navigation">
+                <button class="tab-button active" data-tab="explorationsTab">Explorations</button>
+                <button class="tab-button" data-tab="mainTab">Principal</button>
+                <button class="tab-button" data-tab="calibrationTab">Calibration</button>
+                <button class="tab-button" data-tab="soundTab">Sound Control</button>
+                <button class="tab-button" data-tab="settingsTab">Paramètres</button>
+            </nav>
+
+            <!-- Bouton d'enregistrement (déplacé depuis Sound Control) -->
+            <div class="header-actions">
+                <button id="recordButton" class="control-button record-button header-record-button" disabled title="Enregistrer l'audio">
+                    <span class="record-icon">●</span>
+                    <span class="record-label">REC</span>
+                </button>
+            </div>
+        </header>
 
         <!-- Contenu des onglets -->
         <main class="tab-container">
@@ -59,9 +70,7 @@
                                 <span class="play-icon">▶</span>
                                 <span class="pause-icon" style="display: none;">⏸</span>
                             </button>
-                            <button id="recordButton" class="control-button record-button" disabled>
-                                <span class="record-icon">●</span>
-                            </button>
+                            <!-- Bouton d'enregistrement déplacé dans le header -->
                         </div>
 
                         <!-- Timeline -->
