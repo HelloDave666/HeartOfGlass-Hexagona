@@ -33,6 +33,10 @@ class FoolOfCraftUIController {
     // Système de progression et déblocage
     this.userProgress = this._loadProgress();
 
+    // Tracker l'exercice et durée courants (pour la complétion)
+    this.currentExercise = null;
+    this.currentDuration = null;
+
     // Exposer commandes de développement pour prototypage
     if (typeof window !== 'undefined') {
       window.unlockAll = () => this._unlockAll();
@@ -134,21 +138,31 @@ class FoolOfCraftUIController {
 
     // Si l'exercice a été complété (pas juste arrêté), marquer comme terminé
     if (completed && reason === 'completed') {
-      // Identifier l'exercice courant via ExerciseController
-      if (this.exerciseController && this.exerciseController.currentExercise) {
-        const exerciseId = 'rotationContinue'; // Pour l'instant, c'est le seul exercice
+      // Vérifier qu'on a bien un exercice et une durée trackés
+      if (this.currentExercise && this.currentDuration) {
+        const exerciseId = this.currentExercise;
+        const duration = this.currentDuration;
 
-        // Marquer l'exercice comme complété dans la progression
-        if (!this.userProgress.exercisesCompleted.includes(exerciseId)) {
-          this.completeExercise(exerciseId);
+        // Vérifier si cette durée n'est pas déjà complétée
+        if (!this.isDurationCompleted(exerciseId, duration)) {
+          // Marquer la durée comme complétée (débloque automatiquement la suivante)
+          this.completeExerciseDuration(exerciseId, duration);
 
           // Afficher un message de félicitations
-          this._showCompletionCelebration(exerciseName, stats);
+          this._showCompletionCelebration(exerciseName, stats, duration);
 
           // Rafraîchir l'affichage des cartes d'exploration
           this._renderExplorations();
         }
+
+        // Réinitialiser le tracking
+        this.currentExercise = null;
+        this.currentDuration = null;
       }
+    } else {
+      // Si annulé, réinitialiser le tracking
+      this.currentExercise = null;
+      this.currentDuration = null;
     }
   }
 
@@ -834,9 +848,28 @@ class FoolOfCraftUIController {
    * Affiche un message de félicitations lors de la complétion d'un exercice
    * @param {string} exerciseName - Nom de l'exercice complété
    * @param {Object} stats - Statistiques de l'exercice
+   * @param {string} duration - Durée complétée ('3min', '5min', 'free')
    * @private
    */
-  _showCompletionCelebration(exerciseName, stats) {
+  _showCompletionCelebration(exerciseName, stats, duration = '5min') {
+    // Messages adaptés selon la durée
+    let unlockMessage = '';
+    let durationLabel = '';
+
+    switch(duration) {
+      case '3min':
+        unlockMessage = '✨ Durée 5 minutes débloquée !';
+        durationLabel = '3 minutes';
+        break;
+      case '5min':
+        unlockMessage = '✨ Mode Free (temps infini) débloqué !';
+        durationLabel = '5 minutes';
+        break;
+      case 'free':
+        unlockMessage = '🎉 Prochain exercice débloqué !';
+        durationLabel = 'Free (temps infini)';
+        break;
+    }
     // Créer un modal de célébration
     const celebration = document.createElement('div');
     celebration.className = 'completion-celebration';
@@ -846,7 +879,8 @@ class FoolOfCraftUIController {
         <h2 class="celebration-title">Félicitations !</h2>
         <p class="celebration-message">
           Vous avez terminé l'exercice<br>
-          <strong>${exerciseName}</strong>
+          <strong>${exerciseName}</strong><br>
+          <span class="duration-label">Durée: ${durationLabel}</span>
         </p>
         <div class="celebration-stats">
           <div class="stat-item">
@@ -859,7 +893,7 @@ class FoolOfCraftUIController {
           </div>
         </div>
         <div class="celebration-unlock">
-          <p>✨ Prochain exercice débloqué !</p>
+          <p>${unlockMessage}</p>
         </div>
         <button class="btn-celebration-close">Continuer</button>
       </div>
@@ -1046,47 +1080,109 @@ class FoolOfCraftUIController {
   }
 
   /**
-   * Crée une card d'exploration avec système de déblocage
+   * Crée une card d'exploration avec système de déblocage par durée
    * @private
    */
   _createExplorationCard(exploration, categoryId) {
     const card = document.createElement('div');
 
-    // Vérifier si l'exercice est débloqué via système de progression
+    // Vérifier si l'exercice est débloqué (au moins une durée disponible)
     const isUnlocked = this.isExerciseUnlocked(exploration.id);
-    const isCompleted = this.userProgress.exercisesCompleted.includes(exploration.id);
+
+    // États des durées
+    const duration3min = {
+      unlocked: this.isDurationUnlocked(exploration.id, '3min'),
+      completed: this.isDurationCompleted(exploration.id, '3min')
+    };
+    const duration5min = {
+      unlocked: this.isDurationUnlocked(exploration.id, '5min'),
+      completed: this.isDurationCompleted(exploration.id, '5min')
+    };
+    const durationFree = {
+      unlocked: this.isDurationUnlocked(exploration.id, 'free'),
+      completed: this.isDurationCompleted(exploration.id, 'free')
+    };
 
     card.className = `exploration-card ${isUnlocked ? 'available' : 'locked'}`;
+
+    // Helper pour générer le HTML d'un bouton de durée
+    const createDurationButton = (duration, label, icon, state) => {
+      let statusIcon = '';
+      let statusText = '';
+      let btnClass = 'duration-btn';
+
+      if (!state.unlocked) {
+        statusIcon = '🔒';
+        statusText = 'Verrouillé';
+        btnClass += ' locked';
+      } else if (state.completed) {
+        statusIcon = '✓';
+        statusText = 'Complété';
+        btnClass += ' completed';
+      } else {
+        statusIcon = '▶';
+        statusText = 'Disponible';
+        btnClass += ' available';
+      }
+
+      return `
+        <button class="${btnClass}" data-duration="${duration}" data-exploration-id="${exploration.id}" data-category="${categoryId}" ${!state.unlocked ? 'disabled' : ''}>
+          <div class="duration-content">
+            <span class="duration-icon">${icon}</span>
+            <span class="duration-label">${label}</span>
+          </div>
+          <span class="duration-status">${statusIcon} ${statusText}</span>
+        </button>
+      `;
+    };
 
     card.innerHTML = `
       <div class="exploration-header">
         <h4 class="exploration-name">
           ${!isUnlocked ? '🔒 ' : ''}${exploration.name}
         </h4>
-        ${isCompleted ?
-          '<span class="status-badge completed-badge">✓ Complété</span>' :
-          isUnlocked ?
-            '<span class="status-badge available-badge">Débloqué</span>' :
-            '<span class="status-badge locked-badge">🔒 Verrouillé</span>'
-        }
+        ${isUnlocked ? `
+          <button class="btn-rec-card" data-exploration-id="${exploration.id}" title="Enregistrer cette session">
+            <span class="rec-icon">●</span>
+            <span class="rec-label">REC</span>
+          </button>
+        ` : ''}
       </div>
       <p class="exploration-description">${exploration.description}</p>
+
       ${isUnlocked ? `
-        <button class="exploration-launch-btn" data-exploration-id="${exploration.id}" data-category="${categoryId}">
-          ${isCompleted ? 'Rejouer' : 'Lancer'}
-        </button>
+        <div class="duration-buttons">
+          ${createDurationButton('3min', '3 minutes', '⏱️', duration3min)}
+          ${createDurationButton('5min', '5 minutes', '⏲️', duration5min)}
+          ${createDurationButton('free', 'Free', '∞', durationFree)}
+        </div>
       ` : `
         <div class="locked-message">
-          Complétez les exercices précédents pour débloquer
+          Complétez le tutoriel pour débloquer cet exercice
         </div>
       `}
     `;
 
+    // Attacher les événements pour les boutons de durée
     if (isUnlocked) {
-      const launchBtn = card.querySelector('.exploration-launch-btn');
-      launchBtn.addEventListener('click', () => {
-        this._launchExploration(exploration.id, categoryId);
+      const durationBtns = card.querySelectorAll('.duration-btn:not(.locked)');
+      durationBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const duration = btn.getAttribute('data-duration');
+          const explId = btn.getAttribute('data-exploration-id');
+          const catId = btn.getAttribute('data-category');
+          this._launchExploration(explId, catId, duration);
+        });
       });
+
+      // Événement pour le bouton REC
+      const recBtn = card.querySelector('.btn-rec-card');
+      if (recBtn) {
+        recBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._toggleRecording(exploration.id);
+        });
+      }
     }
 
     return card;
@@ -1095,9 +1191,12 @@ class FoolOfCraftUIController {
   /**
    * Lance une exploration avec vérifications complètes
    * @private
+   * @param {string} explorationId - ID de l'exercice
+   * @param {string} categoryId - ID de la catégorie
+   * @param {string} duration - Durée sélectionnée ('3min', '5min', 'free')
    */
-  _launchExploration(explorationId, categoryId) {
-    console.log(`[FoolOfCraft] Tentative lancement exploration: ${explorationId} from ${categoryId}`);
+  _launchExploration(explorationId, categoryId, duration = '3min') {
+    console.log(`[FoolOfCraft] Tentative lancement exploration: ${explorationId} from ${categoryId} (${duration})`);
 
     if (!this.exerciseController) {
       alert('ExerciseController non disponible. Vérifiez la configuration.');
@@ -1163,16 +1262,29 @@ class FoolOfCraftUIController {
     }
 
     try {
-      const started = this.exerciseController.startExercise(exerciseId);
+      // Tracker l'exercice et la durée pour la complétion
+      this.currentExercise = explorationId;
+      this.currentDuration = duration;
+
+      // Lancer l'exercice avec la durée spécifiée
+      const started = this.exerciseController.startExercise(exerciseId, duration);
 
       if (!started) {
         alert('❌ Impossible de lancer l\'exercice\n\nVérifiez que tous les prérequis sont remplis.');
+        this.currentExercise = null;
+        this.currentDuration = null;
         return;
       }
 
-      console.log(`[FoolOfCraft] ✓ Exploration "${explorationId}" lancée avec succès`);
+      console.log(`[FoolOfCraft] ✓ Exploration "${explorationId}" lancée avec succès (${duration})`);
 
-      alert(`✓ Exploration lancée!\n\nCatégorie: ${categoryId}\nExploration: ${explorationId}\n\n🎮 Instructions:\n• Rotation des mains → Vitesse\n• Angle des poignets → Volume\n• Mouvement fluide → Son continu\n\n⏹ Arrêt: Bouton dans l'assistant tutoriel`);
+      // Message adapté selon la durée
+      let durationLabel = '';
+      if (duration === '3min') durationLabel = '3 minutes';
+      else if (duration === '5min') durationLabel = '5 minutes';
+      else if (duration === 'free') durationLabel = 'Temps infini';
+
+      alert(`✓ Exploration lancée!\n\nCatégorie: ${categoryId}\nExploration: ${explorationId}\nDurée: ${durationLabel}\n\n🎮 Instructions:\n• Rotation des mains → Vitesse\n• Angle des poignets → Volume\n• Mouvement fluide → Son continu\n\n⏹ Arrêt: Bouton dans l'assistant tutoriel`);
 
       // Si tutoriel ouvert, le transformer en mode exercice actif
       if (this.tutorialModal) {
@@ -1182,7 +1294,29 @@ class FoolOfCraftUIController {
     } catch (error) {
       console.error('[FoolOfCraft] Erreur lancement exploration:', error);
       alert('❌ Erreur lors du lancement:\n\n' + error.message);
+      this.currentExercise = null;
+      this.currentDuration = null;
     }
+  }
+
+  /**
+   * Active/désactive l'enregistrement audio
+   * @private
+   * @param {string} exerciseId - ID de l'exercice
+   */
+  _toggleRecording(exerciseId) {
+    // Obtenir le bouton d'enregistrement global
+    const globalRecBtn = document.getElementById('recordButton');
+
+    if (!globalRecBtn) {
+      console.warn('[FoolOfCraft] Bouton d\'enregistrement non trouvé');
+      return;
+    }
+
+    // Simuler un clic sur le bouton global
+    globalRecBtn.click();
+
+    console.log(`[FoolOfCraft] Enregistrement togglé pour ${exerciseId}`);
   }
 
   /**
@@ -2025,6 +2159,156 @@ class FoolOfCraftUIController {
         font-style: italic;
       }
 
+      /* ========================================
+         BOUTON REC SUR LES CARTES
+         ======================================== */
+
+      .btn-rec-card {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 12px;
+        background: linear-gradient(135deg, #2a2a2a, #1a1a1a);
+        border: 2px solid #444;
+        border-radius: 6px;
+        color: #e0e0e0;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .btn-rec-card:hover {
+        border-color: #dc3545;
+        background: linear-gradient(135deg, #3a2a2a, #2a1a1a);
+        transform: scale(1.05);
+      }
+
+      .btn-rec-card.recording {
+        border-color: #dc3545;
+        background: linear-gradient(135deg, #4a2a2a, #3a1a1a);
+        animation: pulse-rec 1.5s ease-in-out infinite;
+      }
+
+      .btn-rec-card .rec-icon {
+        color: #dc3545;
+        font-size: 1rem;
+      }
+
+      .btn-rec-card.recording .rec-icon {
+        animation: blink-rec 1s ease-in-out infinite;
+      }
+
+      @keyframes pulse-rec {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.4); }
+        50% { box-shadow: 0 0 0 6px rgba(220, 53, 69, 0); }
+      }
+
+      @keyframes blink-rec {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+      }
+
+      /* ========================================
+         BOUTONS DE DURÉE
+         ======================================== */
+
+      .duration-buttons {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 15px;
+      }
+
+      .duration-btn {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        border-radius: 8px;
+        border: 2px solid transparent;
+        background: rgba(255, 255, 255, 0.03);
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-family: inherit;
+        width: 100%;
+      }
+
+      .duration-content {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .duration-icon {
+        font-size: 1.2rem;
+      }
+
+      .duration-label {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: #e0e0e0;
+      }
+
+      .duration-status {
+        font-size: 0.85rem;
+        color: rgba(255, 255, 255, 0.6);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      /* État: Disponible */
+      .duration-btn.available {
+        border-color: rgba(76, 175, 80, 0.3);
+        background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), rgba(76, 175, 80, 0.05));
+      }
+
+      .duration-btn.available:hover {
+        border-color: rgba(76, 175, 80, 0.6);
+        background: linear-gradient(135deg, rgba(76, 175, 80, 0.15), rgba(76, 175, 80, 0.1));
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+      }
+
+      .duration-btn.available .duration-status {
+        color: #4CAF50;
+      }
+
+      /* État: Complété */
+      .duration-btn.completed {
+        border-color: rgba(33, 150, 243, 0.3);
+        background: linear-gradient(135deg, rgba(33, 150, 243, 0.1), rgba(33, 150, 243, 0.05));
+      }
+
+      .duration-btn.completed:hover {
+        border-color: rgba(33, 150, 243, 0.6);
+        background: linear-gradient(135deg, rgba(33, 150, 243, 0.15), rgba(33, 150, 243, 0.1));
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(33, 150, 243, 0.3);
+      }
+
+      .duration-btn.completed .duration-status {
+        color: #2196F3;
+      }
+
+      /* État: Verrouillé */
+      .duration-btn.locked {
+        opacity: 0.4;
+        cursor: not-allowed;
+        border-color: rgba(158, 158, 158, 0.2);
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .duration-btn.locked:hover {
+        transform: none;
+        box-shadow: none;
+      }
+
+      .duration-btn.locked .duration-status {
+        color: rgba(255, 255, 255, 0.4);
+      }
+
       @keyframes fadeIn {
         from { opacity: 0; }
         to { opacity: 1; }
@@ -2052,13 +2336,64 @@ class FoolOfCraftUIController {
         return this._getDefaultProgress();
       }
 
-      const progress = JSON.parse(saved);
+      let progress = JSON.parse(saved);
+
+      // Migration de l'ancien format (v1.0.0) vers le nouveau (v2.0.0)
+      if (!progress.version || progress.version === '1.0.0') {
+        console.log('[FoolOfCraft] Migration progression v1.0.0 → v2.0.0');
+        progress = this._migrateProgressToV2(progress);
+      }
+
       console.log('[FoolOfCraft] Progression chargée:', progress);
       return progress;
     } catch (error) {
       console.error('[FoolOfCraft] Erreur chargement progression:', error);
       return this._getDefaultProgress();
     }
+  }
+
+  /**
+   * Migre la progression de v1.0.0 vers v2.0.0
+   * @private
+   * @param {Object} oldProgress - Ancienne progression
+   * @returns {Object} - Nouvelle progression
+   */
+  _migrateProgressToV2(oldProgress) {
+    const newProgress = this._getDefaultProgress();
+
+    // Conserver le statut du tutoriel
+    newProgress.tutorialCompleted = oldProgress.tutorialCompleted || false;
+    newProgress.lastPlayedDate = oldProgress.lastPlayedDate || null;
+
+    // Migrer les exercices débloqués
+    if (oldProgress.exercisesUnlocked && Array.isArray(oldProgress.exercisesUnlocked)) {
+      oldProgress.exercisesUnlocked.forEach(exerciseId => {
+        if (newProgress.exercises[exerciseId]) {
+          newProgress.exercises[exerciseId].unlocked = true;
+          // Débloquer 3min par défaut pour les exercices débloqués
+          newProgress.exercises[exerciseId].durations['3min'].unlocked = true;
+        }
+      });
+    }
+
+    // Migrer les exercices complétés (considérés comme 5min complétés)
+    if (oldProgress.exercisesCompleted && Array.isArray(oldProgress.exercisesCompleted)) {
+      oldProgress.exercisesCompleted.forEach(exerciseId => {
+        if (newProgress.exercises[exerciseId]) {
+          newProgress.exercises[exerciseId].unlocked = true;
+          // Marquer 3min et 5min comme complétés
+          newProgress.exercises[exerciseId].durations['3min'].completed = true;
+          newProgress.exercises[exerciseId].durations['3min'].unlocked = true;
+          newProgress.exercises[exerciseId].durations['5min'].completed = true;
+          newProgress.exercises[exerciseId].durations['5min'].unlocked = true;
+          // Débloquer free
+          newProgress.exercises[exerciseId].durations['free'].unlocked = true;
+        }
+      });
+    }
+
+    console.log('[FoolOfCraft] Migration terminée:', newProgress);
+    return newProgress;
   }
 
   /**
@@ -2069,10 +2404,51 @@ class FoolOfCraftUIController {
   _getDefaultProgress() {
     return {
       tutorialCompleted: false,
-      exercisesUnlocked: [],
-      exercisesCompleted: [],
+      exercises: {
+        // Chaque exercice a 3 durées : 3min, 5min, free
+        rotationContinue: {
+          unlocked: false,
+          durations: {
+            '3min': { completed: false, unlocked: false },
+            '5min': { completed: false, unlocked: false },
+            'free': { completed: false, unlocked: false }
+          }
+        },
+        synchronisationMains: {
+          unlocked: false,
+          durations: {
+            '3min': { completed: false, unlocked: false },
+            '5min': { completed: false, unlocked: false },
+            'free': { completed: false, unlocked: false }
+          }
+        },
+        etiragePointe: {
+          unlocked: false,
+          durations: {
+            '3min': { completed: false, unlocked: false },
+            '5min': { completed: false, unlocked: false },
+            'free': { completed: false, unlocked: false }
+          }
+        },
+        soufflageRythmique: {
+          unlocked: false,
+          durations: {
+            '3min': { completed: false, unlocked: false },
+            '5min': { completed: false, unlocked: false },
+            'free': { completed: false, unlocked: false }
+          }
+        },
+        torsionTube: {
+          unlocked: false,
+          durations: {
+            '3min': { completed: false, unlocked: false },
+            '5min': { completed: false, unlocked: false },
+            'free': { completed: false, unlocked: false }
+          }
+        }
+      },
       lastPlayedDate: null,
-      version: '1.0.0'
+      version: '2.0.0' // Nouvelle version pour la progression par durée
     };
   }
 
@@ -2090,7 +2466,7 @@ class FoolOfCraftUIController {
   }
 
   /**
-   * Vérifie si un exercice est débloqué
+   * Vérifie si un exercice est débloqué (au moins une durée débloquée)
    * @param {string} exerciseId - ID de l'exercice
    * @returns {boolean}
    */
@@ -2100,24 +2476,59 @@ class FoolOfCraftUIController {
       return true;
     }
 
-    // Premier exercice débloqué quand tutoriel terminé
+    // Premier exercice (rotationContinue) débloqué quand tutoriel terminé
     if (exerciseId === 'rotationContinue') {
       return this.userProgress.tutorialCompleted;
     }
 
     // Autres exercices débloqués selon progression
-    return this.userProgress.exercisesUnlocked.includes(exerciseId);
+    const exercise = this.userProgress.exercises[exerciseId];
+    return exercise && exercise.unlocked;
   }
 
   /**
-   * Débloque un exercice
+   * Vérifie si une durée spécifique est débloquée pour un exercice
+   * @param {string} exerciseId - ID de l'exercice
+   * @param {string} duration - Durée ('3min', '5min', 'free')
+   * @returns {boolean}
+   */
+  isDurationUnlocked(exerciseId, duration) {
+    const exercise = this.userProgress.exercises[exerciseId];
+    if (!exercise) return false;
+
+    return exercise.durations[duration] && exercise.durations[duration].unlocked;
+  }
+
+  /**
+   * Vérifie si une durée a été complétée
+   * @param {string} exerciseId - ID de l'exercice
+   * @param {string} duration - Durée ('3min', '5min', 'free')
+   * @returns {boolean}
+   */
+  isDurationCompleted(exerciseId, duration) {
+    const exercise = this.userProgress.exercises[exerciseId];
+    if (!exercise) return false;
+
+    return exercise.durations[duration] && exercise.durations[duration].completed;
+  }
+
+  /**
+   * Débloque un exercice (débloque la durée 3min par défaut)
    * @param {string} exerciseId - ID de l'exercice à débloquer
    */
   unlockExercise(exerciseId) {
-    if (!this.userProgress.exercisesUnlocked.includes(exerciseId)) {
-      this.userProgress.exercisesUnlocked.push(exerciseId);
+    const exercise = this.userProgress.exercises[exerciseId];
+    if (!exercise) {
+      console.warn(`[FoolOfCraft] Exercice inconnu: ${exerciseId}`);
+      return;
+    }
+
+    if (!exercise.unlocked) {
+      exercise.unlocked = true;
+      // Débloquer automatiquement la durée 3min
+      exercise.durations['3min'].unlocked = true;
       this._saveProgress();
-      console.log(`[FoolOfCraft] ✓ Exercice débloqué: ${exerciseId}`);
+      console.log(`[FoolOfCraft] ✓ Exercice débloqué: ${exerciseId} (3min disponible)`);
     }
   }
 
@@ -2126,24 +2537,49 @@ class FoolOfCraftUIController {
    */
   completeTutorial() {
     this.userProgress.tutorialCompleted = true;
-    this.unlockExercise('rotationContinue'); // Débloque le premier exercice
+    this.unlockExercise('rotationContinue'); // Débloque le premier exercice (3min)
     this._saveProgress();
-    console.log('[FoolOfCraft] ✓ Tutoriel terminé - Rotation Continue débloqué');
+    console.log('[FoolOfCraft] ✓ Tutoriel terminé - Rotation Continue 3min débloqué');
   }
 
   /**
-   * Marque un exercice comme complété
+   * Marque une durée d'exercice comme complétée
    * @param {string} exerciseId - ID de l'exercice
+   * @param {string} duration - Durée complétée ('3min', '5min', 'free')
    */
-  completeExercise(exerciseId) {
-    if (!this.userProgress.exercisesCompleted.includes(exerciseId)) {
-      this.userProgress.exercisesCompleted.push(exerciseId);
+  completeExerciseDuration(exerciseId, duration) {
+    const exercise = this.userProgress.exercises[exerciseId];
+    if (!exercise) {
+      console.warn(`[FoolOfCraft] Exercice inconnu: ${exerciseId}`);
+      return;
+    }
+
+    const durationData = exercise.durations[duration];
+    if (!durationData) {
+      console.warn(`[FoolOfCraft] Durée invalide: ${duration}`);
+      return;
+    }
+
+    if (!durationData.completed) {
+      // Marquer comme complété
+      durationData.completed = true;
+
+      // Débloquer la durée suivante selon la progression
+      if (duration === '3min') {
+        // Compléter 3min → débloquer 5min
+        exercise.durations['5min'].unlocked = true;
+        console.log(`[FoolOfCraft] ✓ ${exerciseId} 3min complété → 5min débloqué`);
+      } else if (duration === '5min') {
+        // Compléter 5min → débloquer free
+        exercise.durations['free'].unlocked = true;
+        console.log(`[FoolOfCraft] ✓ ${exerciseId} 5min complété → Free débloqué`);
+      } else if (duration === 'free') {
+        // Compléter free → débloquer le prochain exercice
+        this._unlockNextExercise(exerciseId);
+        console.log(`[FoolOfCraft] ✓ ${exerciseId} Free complété → Prochain exercice débloqué`);
+      }
+
       this._saveProgress();
-
-      // Débloquer le prochain exercice selon ordre prédéfini
-      this._unlockNextExercise(exerciseId);
-
-      console.log(`[FoolOfCraft] ✓ Exercice complété: ${exerciseId}`);
     }
   }
 
@@ -2170,31 +2606,25 @@ class FoolOfCraftUIController {
   }
 
   /**
-   * DÉVELOPPEMENT: Débloque tous les exercices
+   * DÉVELOPPEMENT: Débloque tous les exercices et toutes les durées
    * @private
    */
   _unlockAll() {
     this.userProgress.tutorialCompleted = true;
-    this.userProgress.exercisesUnlocked = [
-      'rotationContinue',
-      'synchronisationMains',
-      'etiragePoin te',
-      'soufflageRythmique',
-      'torsionTube',
-      'centrageArgile',
-      'monteeParois',
-      'ourletsRebords',
-      'emaillagePrecis',
-      'tournageCompose',
-      'chaine Trame',
-      'tensionFils',
-      'tissageCroise',
-      'nouageMain'
-    ];
+
+    // Débloquer tous les exercices et toutes leurs durées
+    Object.keys(this.userProgress.exercises).forEach(exerciseId => {
+      const exercise = this.userProgress.exercises[exerciseId];
+      exercise.unlocked = true;
+      exercise.durations['3min'].unlocked = true;
+      exercise.durations['5min'].unlocked = true;
+      exercise.durations['free'].unlocked = true;
+    });
+
     this._saveProgress();
-    console.log('[FoolOfCraft] 🔓 TOUS LES EXERCICES DÉBLOQUÉS (mode développement)');
+    console.log('[FoolOfCraft] 🔓 TOUS LES EXERCICES ET DURÉES DÉBLOQUÉS (mode développement)');
     console.log('[FoolOfCraft] Rechargez la page pour voir les changements');
-    return 'Tous les exercices débloqués! Rechargez la page.';
+    return 'Tous les exercices et durées débloqués! Rechargez la page.';
   }
 
   /**

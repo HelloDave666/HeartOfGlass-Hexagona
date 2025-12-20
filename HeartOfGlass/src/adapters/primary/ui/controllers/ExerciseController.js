@@ -59,22 +59,22 @@ class ExerciseController {
  * Démarre un exercice
  * @param {string} exerciseName - Nom de l'exercice (rotationContinue, etc.)
  */
- startExercise(exerciseName) {
- console.log('[ExerciseController] Démarrage exercice:', exerciseName);
- 
+ startExercise(exerciseName, duration = '5min') {
+ console.log('[ExerciseController] Démarrage exercice:', exerciseName, 'Durée:', duration);
+
  // Vérifier si un exercice est déjà actif
  if (this.currentExercise) {
  console.warn('[ExerciseController] Un exercice est déjà actif, arrêt...');
  this.stopCurrentExercise();
  }
- 
+
  // Vérifier si l'exercice existe
  const exerciseConfig = this.availableExercises[exerciseName];
  if (!exerciseConfig || !exerciseConfig.class) {
  console.error('[ExerciseController] Exercice inconnu:', exerciseName);
  return false;
  }
- 
+
  try {
  // Créer l'instance de l'exercice
  const ExerciseClass = exerciseConfig.class;
@@ -84,14 +84,21 @@ class ExerciseController {
  calibrationOrchestrator: this.calibrationOrchestrator,
  audioUIController: this.audioUIController
  });
- 
+
  this.currentExerciseName = exerciseName;
- 
+
+ // Configurer la durée de l'exercice AVANT de le démarrer
+ const durationMs = this._convertDurationToMs(duration);
+ if (this.currentExercise.config && durationMs !== null) {
+ this.currentExercise.config.duration = durationMs;
+ console.log(`[ExerciseController] Durée configurée: ${durationMs}ms (${duration})`);
+ }
+
  // Démarrer l'exercice
  const started = this.currentExercise.start();
- 
+
  if (started) {
- console.log('[ExerciseController] [OK] Exercice démarré:', exerciseName);
+ console.log('[ExerciseController] [OK] Exercice démarré:', exerciseName, `(${duration})`);
  return true;
  } else {
  console.error('[ExerciseController] Échec démarrage exercice');
@@ -104,6 +111,26 @@ class ExerciseController {
  this.currentExercise = null;
  this.currentExerciseName = null;
  return false;
+ }
+ }
+
+ /**
+ * Convertit une durée en millisecondes
+ * @param {string} duration - '3min', '5min', 'free'
+ * @returns {number|null}
+ * @private
+ */
+ _convertDurationToMs(duration) {
+ switch(duration) {
+ case '3min':
+ return 3 * 60 * 1000; // 180000ms
+ case '5min':
+ return 5 * 60 * 1000; // 300000ms
+ case 'free':
+ return 365 * 24 * 60 * 60 * 1000; // 1 an (temps infini effectif)
+ default:
+ console.warn('[ExerciseController] Durée invalide:', duration);
+ return 5 * 60 * 1000; // Par défaut 5min
  }
  }
  
