@@ -256,13 +256,14 @@ class RotationContinueExercise extends Exercise {
  /**
  * Arrête l'exercice
  */
- stop() {
+ stop(reason = 'cancelled') {
  if (!this.isActive) {
  return;
  }
- 
- console.log('[RotationContinueExercise] Arrêt...');
- 
+
+ const isCompleted = reason === 'completed';
+ console.log(`[RotationContinueExercise] Arrêt... (${isCompleted ? 'COMPLÉTÉ' : 'ANNULÉ'})`);
+
  this.isActive = false;
  
  // Arrêter la surveillance
@@ -292,10 +293,12 @@ class RotationContinueExercise extends Exercise {
  console.log(` - Ratio déduplication: ${(this.audioCommandCount / Math.max(1, this.updateCount) * 100).toFixed(1)}%`);
  console.log(` - Vitesse moyenne: ${stats.avgVelocity}°/s (${(stats.avgVelocity/360).toFixed(2)} tour/sec)`);
  
- // Notifier l'UI
+ // Notifier l'UI avec le statut de complétion
  this._notifyUI('EXERCISE_ENDED', {
  exerciseName: 'Rotation Continue v3.2',
- stats: stats
+ stats: stats,
+ completed: isCompleted,
+ reason: reason
  });
  }
  
@@ -721,12 +724,12 @@ class RotationContinueExercise extends Exercise {
  if (!this.isActive) {
  return;
  }
- 
+
  const elapsed = Date.now() - this.startTime;
- 
+
  if (elapsed >= this.config.duration) {
- console.log('[RotationContinueExercise] Durée atteinte');
- this.stop();
+ console.log('[RotationContinueExercise] Durée atteinte - Exercice COMPLÉTÉ');
+ this.stop('completed'); // Marquer comme complété (vs 'cancelled')
  return;
  }
  

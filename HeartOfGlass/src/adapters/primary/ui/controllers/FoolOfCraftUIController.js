@@ -84,7 +84,72 @@ class FoolOfCraftUIController {
       this._checkTutorialProgress();
     }, 1000);
 
+    // ✨ NOUVEAU: Écouter les événements d'exercice pour détecter les complétions
+    if (typeof window !== 'undefined') {
+      window.addEventListener('exercise-event', (event) => {
+        this._handleExerciseEvent(event);
+      });
+      console.log('[FoolOfCraft] Event listener pour exercices configuré');
+    }
+
     console.log('[FoolOfCraft] Event listeners configurés');
+  }
+
+  /**
+   * Gère les événements d'exercice (démarrage, mise à jour, fin)
+   * @param {CustomEvent} event - Événement d'exercice
+   * @private
+   */
+  _handleExerciseEvent(event) {
+    const { type, data } = event.detail;
+
+    switch (type) {
+      case 'EXERCISE_STARTED':
+        console.log('[FoolOfCraft] Exercice démarré:', data.exerciseName);
+        break;
+
+      case 'EXERCISE_ENDED':
+        this._handleExerciseEnded(data);
+        break;
+
+      case 'EXERCISE_PROGRESS':
+        // Optionnel: afficher la progression quelque part
+        break;
+
+      default:
+        // Ignorer les autres types d'événements
+        break;
+    }
+  }
+
+  /**
+   * Gère la fin d'un exercice
+   * @param {Object} data - Données de l'événement
+   * @private
+   */
+  _handleExerciseEnded(data) {
+    const { exerciseName, stats, completed, reason } = data;
+
+    console.log(`[FoolOfCraft] Exercice terminé: ${exerciseName} (${completed ? 'COMPLÉTÉ' : 'ANNULÉ'})`);
+
+    // Si l'exercice a été complété (pas juste arrêté), marquer comme terminé
+    if (completed && reason === 'completed') {
+      // Identifier l'exercice courant via ExerciseController
+      if (this.exerciseController && this.exerciseController.currentExercise) {
+        const exerciseId = 'rotationContinue'; // Pour l'instant, c'est le seul exercice
+
+        // Marquer l'exercice comme complété dans la progression
+        if (!this.userProgress.exercisesCompleted.includes(exerciseId)) {
+          this.completeExercise(exerciseId);
+
+          // Afficher un message de félicitations
+          this._showCompletionCelebration(exerciseName, stats);
+
+          // Rafraîchir l'affichage des cartes d'exploration
+          this._renderExplorations();
+        }
+      }
+    }
   }
 
   /**
@@ -763,6 +828,72 @@ class FoolOfCraftUIController {
     this._renderCurrentStep();
 
     console.log('[FoolOfCraft] Exercice et audio arrêtés');
+  }
+
+  /**
+   * Affiche un message de félicitations lors de la complétion d'un exercice
+   * @param {string} exerciseName - Nom de l'exercice complété
+   * @param {Object} stats - Statistiques de l'exercice
+   * @private
+   */
+  _showCompletionCelebration(exerciseName, stats) {
+    // Créer un modal de célébration
+    const celebration = document.createElement('div');
+    celebration.className = 'completion-celebration';
+    celebration.innerHTML = `
+      <div class="celebration-content">
+        <div class="celebration-icon">🎉</div>
+        <h2 class="celebration-title">Félicitations !</h2>
+        <p class="celebration-message">
+          Vous avez terminé l'exercice<br>
+          <strong>${exerciseName}</strong>
+        </p>
+        <div class="celebration-stats">
+          <div class="stat-item">
+            <span class="stat-label">Vitesse moyenne</span>
+            <span class="stat-value">${stats.avgVelocity}°/s</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Commandes envoyées</span>
+            <span class="stat-value">${stats.audioCommandCount}</span>
+          </div>
+        </div>
+        <div class="celebration-unlock">
+          <p>✨ Prochain exercice débloqué !</p>
+        </div>
+        <button class="btn-celebration-close">Continuer</button>
+      </div>
+    `;
+
+    document.body.appendChild(celebration);
+
+    // Ajouter animation d'entrée
+    setTimeout(() => {
+      celebration.classList.add('show');
+    }, 10);
+
+    // Gérer la fermeture
+    const closeBtn = celebration.querySelector('.btn-celebration-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        celebration.classList.remove('show');
+        setTimeout(() => {
+          celebration.remove();
+        }, 300);
+      });
+    }
+
+    // Fermeture automatique après 8 secondes
+    setTimeout(() => {
+      if (celebration.parentElement) {
+        celebration.classList.remove('show');
+        setTimeout(() => {
+          celebration.remove();
+        }, 300);
+      }
+    }, 8000);
+
+    console.log('[FoolOfCraft] Message de félicitations affiché');
   }
 
   /**
