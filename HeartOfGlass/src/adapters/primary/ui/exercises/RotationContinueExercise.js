@@ -271,13 +271,21 @@ class RotationContinueExercise extends Exercise {
  clearInterval(this.checkIntervalId);
  this.checkIntervalId = null;
  }
- 
- // Remettre la vitesse normale
+
+ // IMPORTANT: Arrêter complètement la lecture audio
  if (this.audioOrchestrator) {
+ // Remettre la vitesse normale d'abord
  this.audioOrchestrator.setPlaybackRate(1.0, 1);
  console.log('[RotationContinueExercise] Vitesse audio remise à normale');
+
+ // Arrêter la lecture audio complètement
+ const audioState = this.state?.getAudioState();
+ if (audioState && audioState.isPlaying) {
+ this.audioOrchestrator.togglePlayPause();
+ console.log('[RotationContinueExercise] Lecture audio arrêtée');
  }
- 
+ }
+
  // Restaurer les paramètres audio originaux
  if (this.originalAudioParams && this.audioOrchestrator) {
  console.log('[RotationContinueExercise] Restauration paramètres audio');

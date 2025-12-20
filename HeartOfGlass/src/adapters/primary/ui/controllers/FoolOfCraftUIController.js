@@ -152,7 +152,7 @@ class FoolOfCraftUIController {
           this._showCompletionCelebration(exerciseName, stats, duration);
 
           // Rafraîchir l'affichage des cartes d'exploration
-          this._renderExplorations();
+          this._renderInterface();
         }
 
         // Réinitialiser le tracking
