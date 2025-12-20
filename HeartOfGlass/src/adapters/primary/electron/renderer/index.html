@@ -19,13 +19,8 @@
                 <button class="tab-button" data-tab="settingsTab">Paramètres</button>
             </nav>
 
-            <!-- Bouton d'enregistrement (déplacé depuis Sound Control) -->
-            <div class="header-actions">
-                <button id="recordButton" class="control-button record-button header-record-button" disabled title="Enregistrer l'audio">
-                    <span class="record-icon">●</span>
-                    <span class="record-label">REC</span>
-                </button>
-            </div>
+            <!-- Bouton d'enregistrement global (caché, utilisé uniquement en interne) -->
+            <button id="recordButton" style="display: none;"></button>
         </header>
 
         <!-- Contenu des onglets -->

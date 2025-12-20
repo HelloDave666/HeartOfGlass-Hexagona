@@ -37,6 +37,10 @@ class FoolOfCraftUIController {
     this.currentExercise = null;
     this.currentDuration = null;
 
+    // Tracker l'état d'enregistrement
+    this.isRecording = false;
+    this.recordingExerciseId = null;
+
     // Exposer commandes de développement pour prototypage
     if (typeof window !== 'undefined') {
       window.unlockAll = () => this._unlockAll();
@@ -384,7 +388,7 @@ class FoolOfCraftUIController {
 
         <!-- Carte tutoriel -->
         <div class="tutorial-card" id="tutorialCard">
-          <div class="tutorial-icon">📚</div>
+          <div class="tutorial-icon">[?]</div>
           <div class="tutorial-content">
             <h3>Tutoriel : Configuration des capteurs</h3>
             <p class="tutorial-description">
@@ -436,7 +440,7 @@ class FoolOfCraftUIController {
       <div class="tutorial-assistant" id="tutorialAssistant">
         <div class="assistant-header">
           <div class="assistant-title">
-            <span class="assistant-icon">🎓</span>
+            <span class="assistant-icon">[i]</span>
             <span class="assistant-text">Assistant de Configuration</span>
           </div>
           <div class="assistant-controls">
@@ -867,15 +871,15 @@ class FoolOfCraftUIController {
 
     switch(duration) {
       case '3min':
-        unlockMessage = '✨ Durée 5 minutes débloquée !';
+        unlockMessage = 'Durée 5 minutes débloquée !';
         durationLabel = '3 minutes';
         break;
       case '5min':
-        unlockMessage = '✨ Mode Free (temps infini) débloqué !';
+        unlockMessage = 'Mode Free (temps infini) débloqué !';
         durationLabel = '5 minutes';
         break;
       case 'free':
-        unlockMessage = '🎉 Prochain exercice débloqué !';
+        unlockMessage = 'Prochain exercice débloqué !';
         durationLabel = 'Free (temps infini)';
         break;
     }
@@ -884,7 +888,7 @@ class FoolOfCraftUIController {
     celebration.className = 'completion-celebration';
     celebration.innerHTML = `
       <div class="celebration-content">
-        <div class="celebration-icon">🎉</div>
+        <div class="celebration-icon">[OK]</div>
         <h2 class="celebration-title">Félicitations !</h2>
         <p class="celebration-message">
           Vous avez terminé l'exercice<br>
@@ -952,7 +956,7 @@ class FoolOfCraftUIController {
         id: 'verrerie',
         name: 'Verrerie Scientifique',
         description: 'Gestes du soufflage et manipulation du verre',
-        icon: '🔬',
+        icon: '[Glass]',
         explorations: [
           {
             id: 'rotationContinue',
@@ -1121,15 +1125,15 @@ class FoolOfCraftUIController {
       let btnClass = 'duration-btn';
 
       if (!state.unlocked) {
-        statusIcon = '🔒';
+        statusIcon = '[LOCKED]';
         statusText = 'Verrouillé';
         btnClass += ' locked';
       } else if (state.completed) {
-        statusIcon = '✓';
+        statusIcon = '[OK]';
         statusText = 'Complété';
         btnClass += ' completed';
       } else {
-        statusIcon = '▶';
+        statusIcon = '[PLAY]';
         statusText = 'Disponible';
         btnClass += ' available';
       }
@@ -1148,7 +1152,7 @@ class FoolOfCraftUIController {
     card.innerHTML = `
       <div class="exploration-header">
         <h4 class="exploration-name">
-          ${!isUnlocked ? '🔒 ' : ''}${exploration.name}
+          ${!isUnlocked ? '[LOCKED] ' : ''}${exploration.name}
         </h4>
         ${isUnlocked ? `
           <button class="btn-rec-card" data-exploration-id="${exploration.id}" title="Enregistrer cette session">
@@ -1161,9 +1165,9 @@ class FoolOfCraftUIController {
 
       ${isUnlocked ? `
         <div class="duration-buttons">
-          ${createDurationButton('3min', '3 minutes', '⏱️', duration3min)}
-          ${createDurationButton('5min', '5 minutes', '⏲️', duration5min)}
-          ${createDurationButton('free', 'Free', '∞', durationFree)}
+          ${createDurationButton('3min', '3 minutes', '[3min]', duration3min)}
+          ${createDurationButton('5min', '5 minutes', '[5min]', duration5min)}
+          ${createDurationButton('free', 'Free', '[FREE]', durationFree)}
         </div>
       ` : `
         <div class="locked-message">
@@ -1293,7 +1297,7 @@ class FoolOfCraftUIController {
       else if (duration === '5min') durationLabel = '5 minutes';
       else if (duration === 'free') durationLabel = 'Temps infini';
 
-      alert(`✓ Exploration lancée!\n\nCatégorie: ${categoryId}\nExploration: ${explorationId}\nDurée: ${durationLabel}\n\n🎮 Instructions:\n• Rotation des mains → Vitesse\n• Angle des poignets → Volume\n• Mouvement fluide → Son continu\n\n⏹ Arrêt: Bouton dans l'assistant tutoriel`);
+      alert(`Exploration lancée!\n\nCatégorie: ${categoryId}\nExploration: ${explorationId}\nDurée: ${durationLabel}\n\nInstructions:\n• Rotation des mains → Vitesse\n• Angle des poignets → Volume\n• Mouvement fluide → Son continu\n\nArrêt: Bouton dans l'assistant tutoriel`);
 
       // Si tutoriel ouvert, le transformer en mode exercice actif
       if (this.tutorialModal) {
@@ -1314,7 +1318,7 @@ class FoolOfCraftUIController {
    * @param {string} exerciseId - ID de l'exercice
    */
   _toggleRecording(exerciseId) {
-    // Obtenir le bouton d'enregistrement global
+    // Obtenir le bouton d'enregistrement global (caché)
     const globalRecBtn = document.getElementById('recordButton');
 
     if (!globalRecBtn) {
@@ -1322,10 +1326,44 @@ class FoolOfCraftUIController {
       return;
     }
 
-    // Simuler un clic sur le bouton global
-    globalRecBtn.click();
+    // Toggle l'état d'enregistrement
+    this.isRecording = !this.isRecording;
 
-    console.log(`[FoolOfCraft] Enregistrement togglé pour ${exerciseId}`);
+    // Mettre à jour visuellement le bouton REC de la carte
+    this._updateRecButtonVisual(exerciseId, this.isRecording);
+
+    if (this.isRecording) {
+      this.recordingExerciseId = exerciseId;
+      console.log(`[FoolOfCraft] Démarrage enregistrement pour ${exerciseId}`);
+    } else {
+      this.recordingExerciseId = null;
+      console.log(`[FoolOfCraft] Arrêt enregistrement`);
+    }
+
+    // Simuler un clic sur le bouton global pour déclencher l'enregistrement réel
+    globalRecBtn.click();
+  }
+
+  /**
+   * Met à jour l'apparence visuelle du bouton REC
+   * @private
+   * @param {string} exerciseId - ID de l'exercice
+   * @param {boolean} isRecording - État d'enregistrement
+   */
+  _updateRecButtonVisual(exerciseId, isRecording) {
+    // Trouver le bouton REC de cette carte
+    const recBtn = document.querySelector(`.btn-rec-card[data-exploration-id="${exerciseId}"]`);
+
+    if (!recBtn) {
+      console.warn(`[FoolOfCraft] Bouton REC non trouvé pour ${exerciseId}`);
+      return;
+    }
+
+    if (isRecording) {
+      recBtn.classList.add('recording');
+    } else {
+      recBtn.classList.remove('recording');
+    }
   }
 
   /**
@@ -2577,15 +2615,18 @@ class FoolOfCraftUIController {
       if (duration === '3min') {
         // Compléter 3min → débloquer 5min
         exercise.durations['5min'].unlocked = true;
-        console.log(`[FoolOfCraft] ✓ ${exerciseId} 3min complété → 5min débloqué`);
+        console.log(`[FoolOfCraft] ${exerciseId} 3min complété → 5min débloqué`);
       } else if (duration === '5min') {
-        // Compléter 5min → débloquer free
+        // Compléter 5min → débloquer free ET prochain exercice
         exercise.durations['free'].unlocked = true;
-        console.log(`[FoolOfCraft] ✓ ${exerciseId} 5min complété → Free débloqué`);
-      } else if (duration === 'free') {
-        // Compléter free → débloquer le prochain exercice
+        console.log(`[FoolOfCraft] ${exerciseId} 5min complété → Free débloqué`);
+
+        // Débloquer également le prochain exercice (3min)
         this._unlockNextExercise(exerciseId);
-        console.log(`[FoolOfCraft] ✓ ${exerciseId} Free complété → Prochain exercice débloqué`);
+        console.log(`[FoolOfCraft] ${exerciseId} 5min complété → Prochain exercice débloqué`);
+      } else if (duration === 'free') {
+        // Compléter free → pas d'action spéciale (prochain déjà débloqué par 5min)
+        console.log(`[FoolOfCraft] ${exerciseId} Free complété`);
       }
 
       this._saveProgress();
@@ -2610,7 +2651,7 @@ class FoolOfCraftUIController {
     if (currentIndex >= 0 && currentIndex < progressionOrder.length - 1) {
       const nextExercise = progressionOrder[currentIndex + 1];
       this.unlockExercise(nextExercise);
-      console.log(`[FoolOfCraft] 🎉 Prochain exercice débloqué: ${nextExercise}`);
+      console.log(`[FoolOfCraft] Prochain exercice débloqué: ${nextExercise}`);
     }
   }
 
