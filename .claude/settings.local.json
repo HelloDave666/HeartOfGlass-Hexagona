@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node:*)",
+      "Bash(npm run lint:*)",
+      "Bash(/tmp/RotationContinueExercise_v3.2.js)",
+      "Bash(git checkout:*)",
+      "Bash(test:*)",
+      "Bash(cp:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)",
+      "Bash(find:*)",
+      "Bash(sort:*)",
+      "Bash(npm start)",
+      "Bash(npm cache clean:*)",
+      "Bash(npm install:*)",
+      "Bash(node_modules/.bin/electron:*)",
+      "Bash(npx @electron/rebuild)",
+      "Bash(taskkill:*)",
+      "Bash(node_modules.binelectron .)",
+      "Bash(del:*)",
+      "Bash(cat:*)",
+      "Bash(git init:*)",
+      "Bash(git remote add:*)",
+      "Bash(git fetch:*)",
+      "Bash(git rm:*)",
+      "Bash(git push:*)",
+      "Bash(timeout 5 echo:*)",
+      "Bash(tree:*)",
+      "Bash(ls:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
