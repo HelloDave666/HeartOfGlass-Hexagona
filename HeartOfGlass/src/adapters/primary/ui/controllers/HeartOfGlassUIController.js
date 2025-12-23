@@ -165,7 +165,7 @@ class HeartOfGlassUIController {
     const card = document.createElement('div');
     card.className = `chapter-card ${isUnlocked ? 'unlocked' : 'locked'} ${isCompleted ? 'completed' : ''} ${isCurrent ? 'current' : ''}`;
 
-    const statusIcon = isCompleted ? '✓' : (isUnlocked ? '▶' : '🔒');
+    const statusIcon = '';
     const statusText = isCompleted ? 'Terminé' : (isUnlocked ? 'Disponible' : 'Verrouillé');
 
     card.innerHTML = `

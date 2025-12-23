@@ -377,6 +377,11 @@ class FoolOfCraftUIController {
 
     this.container.innerHTML = `
       <div class="fool-of-craft-ui">
+        <!-- Bouton toggle assistant (sidebar) -->
+        <button class="assistant-toggle-btn" id="assistantToggleBtn" title="Assistant de Configuration">
+          <span class="toggle-icon">?</span>
+        </button>
+
         <!-- Header -->
         <div class="explorations-header">
           <h2>Fool of Craft</h2>
@@ -384,18 +389,6 @@ class FoolOfCraftUIController {
           <p class="explorations-description">
             Explorez les possibilités sonores à travers les gestes des métiers d'art
           </p>
-        </div>
-
-        <!-- Carte tutoriel -->
-        <div class="tutorial-card" id="tutorialCard">
-          <div class="tutorial-icon">[?]</div>
-          <div class="tutorial-content">
-            <h3>Tutoriel : Configuration des capteurs</h3>
-            <p class="tutorial-description">
-              Apprenez à connecter, calibrer et utiliser vos capteurs IMU pour explorer les sons
-            </p>
-            <button class="tutorial-button" id="tutorialButton">Voir le tutoriel</button>
-          </div>
         </div>
 
         <!-- Catégories d'artisanat -->
@@ -407,44 +400,43 @@ class FoolOfCraftUIController {
 
     this._injectStyles();
     this._renderCategories();
-    this._setupTutorialButton();
+    this._createAssistant(); // Créer l'assistant dès le démarrage
+    this._setupAssistantToggle();
 
     console.log('[FoolOfCraft] Interface rendered');
   }
 
   /**
-   * Configure le bouton tutoriel
+   * Configure le bouton toggle de l'assistant
    * @private
    */
-  _setupTutorialButton() {
-    const tutorialButton = document.getElementById('tutorialButton');
-    if (!tutorialButton) return;
+  _setupAssistantToggle() {
+    const toggleBtn = document.getElementById('assistantToggleBtn');
+    if (!toggleBtn) return;
 
-    tutorialButton.addEventListener('click', () => {
-      this._showTutorial();
+    toggleBtn.addEventListener('click', () => {
+      this._toggleAssistant();
     });
   }
 
   /**
-   * Affiche le tutoriel de configuration
+   * Crée l'assistant de configuration (sidebar)
    * @private
    */
-  _showTutorial() {
-    console.log('[FoolOfCraft] Affichage assistant pas à pas');
+  _createAssistant() {
+    console.log('[FoolOfCraft] Création assistant sidebar');
 
     // Vérifier l'état initial et déterminer l'étape de départ
     this._checkTutorialProgress();
     this._determineCurrentStep();
 
     const tutorialHTML = `
-      <div class="tutorial-assistant" id="tutorialAssistant">
+      <div class="tutorial-assistant hidden" id="tutorialAssistant">
         <div class="assistant-header">
           <div class="assistant-title">
-            <span class="assistant-icon">[i]</span>
             <span class="assistant-text">Assistant de Configuration</span>
           </div>
           <div class="assistant-controls">
-            <button class="assistant-minimize" id="assistantMinimize" title="Réduire">_</button>
             <button class="assistant-close" id="assistantClose" title="Fermer">✕</button>
           </div>
         </div>
@@ -474,34 +466,65 @@ class FoolOfCraftUIController {
     // Stocker la référence à l'assistant
     this.tutorialModal = document.getElementById('tutorialAssistant');
     this.assistantBody = document.getElementById('assistantBody');
-    this.isMinimized = false;
+    this.isAssistantVisible = false;
 
     if (!this.tutorialModal) {
       console.error('[FoolOfCraft] Assistant tutoriel non trouvé');
       return;
     }
 
-    // Configuration des boutons de contrôle
-    const minimizeBtn = document.getElementById('assistantMinimize');
+    // Configuration du bouton de fermeture
     const closeBtn = document.getElementById('assistantClose');
-
-    if (minimizeBtn) {
-      minimizeBtn.addEventListener('click', () => {
-        this._toggleMinimize();
-      });
-    }
-
     if (closeBtn) {
       closeBtn.addEventListener('click', () => {
-        this.tutorialModal.remove();
-        this.tutorialModal = null;
+        this._hideAssistant();
       });
     }
 
     // Afficher l'étape courante
     this._renderCurrentStep();
 
-    console.log('[FoolOfCraft] Assistant pas à pas affiché');
+    console.log('[FoolOfCraft] Assistant sidebar créé');
+  }
+
+  /**
+   * Toggle l'affichage de l'assistant
+   * @private
+   */
+  _toggleAssistant() {
+    if (this.isAssistantVisible) {
+      this._hideAssistant();
+    } else {
+      this._showAssistant();
+    }
+  }
+
+  /**
+   * Affiche l'assistant
+   * @private
+   */
+  _showAssistant() {
+    if (!this.tutorialModal) return;
+
+    // Mettre à jour l'état avant d'afficher
+    this._checkTutorialProgress();
+    this._renderCurrentStep();
+
+    this.tutorialModal.classList.remove('hidden');
+    this.isAssistantVisible = true;
+    console.log('[FoolOfCraft] Assistant affiché');
+  }
+
+  /**
+   * Cache l'assistant
+   * @private
+   */
+  _hideAssistant() {
+    if (!this.tutorialModal) return;
+
+    this.tutorialModal.classList.add('hidden');
+    this.isAssistantVisible = false;
+    console.log('[FoolOfCraft] Assistant caché');
   }
 
   /**
@@ -653,24 +676,6 @@ class FoolOfCraftUIController {
   }
 
   /**
-   * Minimise/Maximise l'assistant
-   * @private
-   */
-  _toggleMinimize() {
-    if (!this.tutorialModal || !this.assistantBody) return;
-
-    this.isMinimized = !this.isMinimized;
-
-    if (this.isMinimized) {
-      this.assistantBody.style.display = 'none';
-      this.tutorialModal.classList.add('minimized');
-    } else {
-      this.assistantBody.style.display = 'block';
-      this.tutorialModal.classList.remove('minimized');
-    }
-  }
-
-  /**
    * Lance l'exercice Rotation Continue de manière interactive
    * @private
    */
@@ -684,7 +689,7 @@ class FoolOfCraftUIController {
 
     // VÉRIFICATION OBLIGATOIRE : Calibration doit être complétée
     if (!this._checkCalibrated()) {
-      alert('⚠️ Calibration requise\n\nVous devez calibrer les capteurs avant de lancer l\'exercice.\n\nAllez dans l\'onglet "Calibration" et suivez les instructions.');
+      alert('Calibration requise\n\nVous devez calibrer les capteurs avant de lancer l\'exercice.\n\nAllez dans l\'onglet "Calibration" et suivez les instructions.');
 
       // Naviguer vers l'onglet Calibration
       if (this.tabController) {
@@ -700,7 +705,7 @@ class FoolOfCraftUIController {
 
     // VÉRIFICATION : Capteurs connectés
     if (!this._checkSensorsConnected()) {
-      alert('⚠️ Capteurs non connectés\n\nVous devez connecter les 2 capteurs IMU avant de lancer l\'exercice.\n\nAllez dans l\'onglet "Principal" et cliquez sur "Rechercher les capteurs".');
+      alert('Capteurs non connectés\n\nVous devez connecter les 2 capteurs IMU avant de lancer l\'exercice.\n\nAllez dans l\'onglet "Principal" et cliquez sur "Rechercher les capteurs".');
 
       if (this.tabController) {
         this.tabController.activateTab('mainTab');
@@ -711,7 +716,7 @@ class FoolOfCraftUIController {
 
     // VÉRIFICATION : Audio chargé
     if (!this._checkAudioLoaded()) {
-      alert('⚠️ Fichier audio requis\n\nVous devez charger un fichier audio avant de lancer l\'exercice.\n\nAllez dans l\'onglet "Sound Control" et sélectionnez un fichier audio.');
+      alert('Fichier audio requis\n\nVous devez charger un fichier audio avant de lancer l\'exercice.\n\nAllez dans l\'onglet "Sound Control" et sélectionnez un fichier audio.');
 
       if (this.tabController) {
         this.tabController.activateTab('soundTab');
@@ -769,6 +774,9 @@ class FoolOfCraftUIController {
   _showExerciseActiveMode() {
     if (!this.tutorialModal) return;
 
+    // S'assurer que l'assistant est visible
+    this._showAssistant();
+
     const stepContainer = document.getElementById('stepContainer');
     const stepNumber = document.getElementById('currentStepNumber');
     const progressBar = document.getElementById('progressBarFill');
@@ -783,10 +791,9 @@ class FoolOfCraftUIController {
     stepContainer.innerHTML = `
       <div class="exercise-active">
         <div class="exercise-header">
-          <div class="exercise-icon">🎵</div>
           <div class="exercise-status">
             <h3>Rotation Continue en cours</h3>
-            <span class="status-active">● En cours</span>
+            <span class="status-active">En cours</span>
           </div>
         </div>
 
@@ -800,7 +807,6 @@ class FoolOfCraftUIController {
         </div>
 
         <div class="exercise-tips">
-          <div class="tip-icon">💡</div>
           <div class="tip-text">
             <strong>Astuce :</strong> Commencez par des rotations lentes pour comprendre comment le son réagit à vos mouvements.
           </div>
@@ -808,7 +814,7 @@ class FoolOfCraftUIController {
 
         <div class="exercise-actions">
           <button class="btn-stop-exercise" id="btnStopExercise">
-            ⏹ Arrêter l'exercice
+            Arrêter l'exercice
           </button>
         </div>
       </div>
@@ -888,7 +894,6 @@ class FoolOfCraftUIController {
     celebration.className = 'completion-celebration';
     celebration.innerHTML = `
       <div class="celebration-content">
-        <div class="celebration-icon">[OK]</div>
         <h2 class="celebration-title">Félicitations !</h2>
         <p class="celebration-message">
           Vous avez terminé l'exercice<br>
@@ -956,7 +961,6 @@ class FoolOfCraftUIController {
         id: 'verrerie',
         name: 'Verrerie Scientifique',
         description: 'Gestes du soufflage et manipulation du verre',
-        icon: '[Glass]',
         explorations: [
           {
             id: 'rotationContinue',
@@ -1119,21 +1123,17 @@ class FoolOfCraftUIController {
     card.className = `exploration-card ${isUnlocked ? 'available' : 'locked'}`;
 
     // Helper pour générer le HTML d'un bouton de durée
-    const createDurationButton = (duration, label, icon, state) => {
-      let statusIcon = '';
+    const createDurationButton = (duration, label, state) => {
       let statusText = '';
       let btnClass = 'duration-btn';
 
       if (!state.unlocked) {
-        statusIcon = '[LOCKED]';
         statusText = 'Verrouillé';
         btnClass += ' locked';
       } else if (state.completed) {
-        statusIcon = '[OK]';
         statusText = 'Complété';
         btnClass += ' completed';
       } else {
-        statusIcon = '[PLAY]';
         statusText = 'Disponible';
         btnClass += ' available';
       }
@@ -1141,10 +1141,9 @@ class FoolOfCraftUIController {
       return `
         <button class="${btnClass}" data-duration="${duration}" data-exploration-id="${exploration.id}" data-category="${categoryId}" ${!state.unlocked ? 'disabled' : ''}>
           <div class="duration-content">
-            <span class="duration-icon">${icon}</span>
             <span class="duration-label">${label}</span>
           </div>
-          <span class="duration-status">${statusIcon} ${statusText}</span>
+          <span class="duration-status">${statusText}</span>
         </button>
       `;
     };
@@ -1152,7 +1151,7 @@ class FoolOfCraftUIController {
     card.innerHTML = `
       <div class="exploration-header">
         <h4 class="exploration-name">
-          ${!isUnlocked ? '[LOCKED] ' : ''}${exploration.name}
+          ${exploration.name}
         </h4>
         ${isUnlocked ? `
           <button class="btn-rec-card" data-exploration-id="${exploration.id}" title="Enregistrer cette session">
@@ -1165,9 +1164,9 @@ class FoolOfCraftUIController {
 
       ${isUnlocked ? `
         <div class="duration-buttons">
-          ${createDurationButton('3min', '3 minutes', '[3min]', duration3min)}
-          ${createDurationButton('5min', '5 minutes', '[5min]', duration5min)}
-          ${createDurationButton('free', 'Free', '[FREE]', durationFree)}
+          ${createDurationButton('3min', '3 minutes', duration3min)}
+          ${createDurationButton('5min', '5 minutes', duration5min)}
+          ${createDurationButton('free', 'Free', durationFree)}
         </div>
       ` : `
         <div class="locked-message">
@@ -1222,11 +1221,11 @@ class FoolOfCraftUIController {
 
     // 1. Vérifier capteurs connectés
     if (!this._checkSensorsConnected()) {
-      alert('⚠️ Capteurs non connectés\n\nÉtape 1/3: Connectez les 2 capteurs IMU\n\n→ Onglet "Principal" > "Rechercher les capteurs"\n\nOuvrez le tutoriel pour être guidé étape par étape.');
+      alert('Capteurs non connectés\n\nÉtape 1/3: Connectez les 2 capteurs IMU\n\n→ Onglet "Principal" > "Rechercher les capteurs"\n\nOuvrez le tutoriel pour être guidé étape par étape.');
 
       // Ouvrir le tutoriel si pas déjà ouvert
       if (!this.tutorialModal) {
-        this._showTutorial();
+        this._showAssistant();
       } else if (this.tabController) {
         this.tabController.activateTab('mainTab');
       }
@@ -1236,10 +1235,10 @@ class FoolOfCraftUIController {
 
     // 2. Vérifier audio chargé
     if (!this._checkAudioLoaded()) {
-      alert('⚠️ Fichier audio requis\n\nÉtape 2/3: Chargez un fichier audio\n\n→ Onglet "Sound Control" > Sélectionner fichier\n\nOuvrez le tutoriel pour être guidé étape par étape.');
+      alert('Fichier audio requis\n\nÉtape 2/3: Chargez un fichier audio\n\n→ Onglet "Sound Control" > Sélectionner fichier\n\nOuvrez le tutoriel pour être guidé étape par étape.');
 
       if (!this.tutorialModal) {
-        this._showTutorial();
+        this._showAssistant();
       } else if (this.tabController) {
         this.tabController.activateTab('soundTab');
       }
@@ -1249,10 +1248,10 @@ class FoolOfCraftUIController {
 
     // 3. Vérifier calibration OBLIGATOIRE
     if (!this._checkCalibrated()) {
-      alert('⚠️ Calibration OBLIGATOIRE\n\nÉtape 3/3: Calibrez vos capteurs\n\nLa calibration est essentielle pour:\n• Détecter la direction de rotation\n• Assurer la réactivité de l\'exercice\n• Permettre la lecture avant/arrière\n\n→ Onglet "Calibration" > Suivre instructions\n\nOuvrez le tutoriel pour être guidé étape par étape.');
+      alert('Calibration OBLIGATOIRE\n\nÉtape 3/3: Calibrez vos capteurs\n\nLa calibration est essentielle pour:\n• Détecter la direction de rotation\n• Assurer la réactivité de l\'exercice\n• Permettre la lecture avant/arrière\n\n→ Onglet "Calibration" > Suivre instructions\n\nOuvrez le tutoriel pour être guidé étape par étape.');
 
       if (!this.tutorialModal) {
-        this._showTutorial();
+        this._showAssistant();
       } else if (this.tabController) {
         this.tabController.activateTab('calibrationTab');
       }
@@ -1467,23 +1466,55 @@ class FoolOfCraftUIController {
         box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
       }
 
-      /* Assistant Tutoriel Flottant */
-      .tutorial-assistant {
+      /* Bouton Toggle Assistant */
+      .assistant-toggle-btn {
         position: fixed;
-        bottom: 20px;
+        top: 50%;
         right: 20px;
-        width: 400px;
-        background: #1a1a2e;
+        transform: translateY(-50%);
+        width: 50px;
+        height: 50px;
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.9), rgba(118, 75, 162, 0.9));
         border: 2px solid rgba(102, 126, 234, 0.4);
-        border-radius: 16px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-        z-index: 9999;
-        animation: slideInRight 0.3s ease;
-        overflow: hidden;
+        border-radius: 50%;
+        color: #fff;
+        font-size: 24px;
+        font-weight: bold;
+        cursor: pointer;
+        z-index: 9998;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        transition: all 0.3s ease;
       }
 
-      .tutorial-assistant.minimized {
-        width: 300px;
+      .assistant-toggle-btn:hover {
+        transform: translateY(-50%) scale(1.1);
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+      }
+
+      .toggle-icon {
+        display: block;
+        line-height: 1;
+      }
+
+      /* Assistant Sidebar */
+      .tutorial-assistant {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: 450px;
+        height: 100vh;
+        background: #1a1a2e;
+        border-left: 2px solid rgba(102, 126, 234, 0.4);
+        box-shadow: -10px 0 40px rgba(0, 0, 0, 0.5);
+        z-index: 9999;
+        transition: transform 0.3s ease;
+        transform: translateX(0);
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+
+      .tutorial-assistant.hidden {
+        transform: translateX(100%);
       }
 
       .assistant-header {

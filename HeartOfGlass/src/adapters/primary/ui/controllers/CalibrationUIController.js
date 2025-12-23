@@ -99,10 +99,10 @@ class CalibrationUIController {
  </div>
  <div class="step-controls">
  <button id="btn-rest-start" class="btn-primary">
- <span class="btn-icon">▶</span> Démarrer
+ Démarrer
  </button>
  <button id="btn-rest-stop" class="btn-secondary" disabled>
- <span class="btn-icon">⏹</span> Terminer
+ Terminer
  </button>
  </div>
  <div class="step-progress">
@@ -131,10 +131,10 @@ class CalibrationUIController {
  </div>
  <div class="step-controls">
  <button id="btn-clockwise-start" class="btn-primary" disabled>
- <span class="btn-icon">▶</span> Démarrer
+ Démarrer
  </button>
  <button id="btn-clockwise-stop" class="btn-secondary" disabled>
- <span class="btn-icon">⏹</span> Terminer
+ Terminer
  </button>
  </div>
  <div class="step-progress">
@@ -163,10 +163,10 @@ class CalibrationUIController {
  </div>
  <div class="step-controls">
  <button id="btn-counterclockwise-start" class="btn-primary" disabled>
- <span class="btn-icon">▶</span> Démarrer
+ Démarrer
  </button>
  <button id="btn-counterclockwise-stop" class="btn-secondary" disabled>
- <span class="btn-icon">⏹</span> Terminer
+ Terminer
  </button>
  </div>
  <div class="step-progress">
